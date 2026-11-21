@@ -3,7 +3,7 @@
 # the lab tools image. Final images are distroless, non-root, and read-only
 # friendly.
 
-FROM node:24-alpine AS web
+FROM node:26-alpine AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
