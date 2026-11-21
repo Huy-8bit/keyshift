@@ -2,7 +2,7 @@
 # Multi-stage build for the KeyShift controller and the lab tools image. Final images are distroless, non-root, and read-only
 # friendly.
 
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src
 ENV CGO_ENABLED=0 GOTOOLCHAIN=auto
 COPY go.mod go.sum ./
