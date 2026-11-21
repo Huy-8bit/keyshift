@@ -1,0 +1,79 @@
+{
+  "environment": {
+    "date": "2026-11-20T18:22:01.246046Z",
+    "go_version": "go1.26.11",
+    "os": "darwin",
+    "arch": "arm64",
+    "cpus": 8,
+    "redis_version": "8.6.8",
+    "redis_addr": "localhost:16379",
+    "config": {
+      "RedisAddr": "localhost:16379",
+      "ClusterAddrs": null,
+      "Modes": [
+        "keyshift"
+      ],
+      "Scenarios": [
+        "zipf"
+      ],
+      "Duration": 20000000000,
+      "Warmup": 30000000000,
+      "Concurrency": 64,
+      "Instances": 1,
+      "Seed": 1,
+      "MaxEntries": 1000,
+      "MaxBytes": 16777216,
+      "MaxStaleness": 3000000000,
+      "Window": 10000000000,
+      "TrackedPoolSize": 0,
+      "DrainInterval": 0,
+      "Rate": 20000,
+      "RestartContainer": "",
+      "Log": null
+    },
+    "go_redis_version": "9.23.0"
+  },
+  "results": [
+    {
+      "scenario": "zipf",
+      "mode": "keyshift",
+      "unfavorable": false,
+      "seconds": 20.000068791,
+      "target_rate": 20000,
+      "instances": 1,
+      "concurrency": 64,
+      "ops": 400003,
+      "reads": 380064,
+      "writes": 19939,
+      "errors": 0,
+      "ops_per_sec": 20000.08120872068,
+      "p50_us": 55.296,
+      "p95_us": 286.72,
+      "p99_us": 393.216,
+      "p999_us": 3670.016,
+      "local_hits": 227365,
+      "hit_ratio": 0.5982281931464174,
+      "invalidations": 89,
+      "cache_entries": 176,
+      "cache_memory_bytes": 53454,
+      "admitted_keys": 184,
+      "redis_get_calls": 152766,
+      "redis_get_per_sec": 7638.2737277756,
+      "redis_cmds_per_sec": 8637.270291676969,
+      "redis_cpu_seconds": 2.0313509999999724,
+      "redis_used_memory_bytes": 23024368,
+      "redis_tracking_keys": 176,
+      "redis_tracking_items": 878,
+      "redis_tracking_clients": 11,
+      "stale_reads": 0,
+      "stale_ratio": 0,
+      "max_stale_ms": 0,
+      "alloc_bytes_per_op": 571.8027514793639,
+      "allocs_per_op": 11.023939820451346,
+      "gc_cycles": 26,
+      "gc_pause_ms": 1.612168,
+      "peak_heap_mb": 18.984375,
+      "client_cpu_us_per_op": 31.541805936455475
+    }
+  ]
+}

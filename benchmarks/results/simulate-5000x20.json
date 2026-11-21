@@ -1,0 +1,72 @@
+{
+  "config": {
+    "Services": 100,
+    "InstancesPerService": 50,
+    "CandidatesPerBatch": 20,
+    "KeySpace": 1000000,
+    "Rounds": 3,
+    "Concurrency": 64,
+    "ControllerURL": "",
+    "Token": "",
+    "Paced": 0,
+    "Seed": 1,
+    "InstancePrefix": ""
+  },
+  "instances": 5000,
+  "rounds": [
+    {
+      "round": 1,
+      "batches": 5000,
+      "records": 100000,
+      "seconds": 0.595879833,
+      "batches_per_sec": 8390.95354985776,
+      "records_per_sec": 167819.0709971552,
+      "p50_ms": 2.571,
+      "p99_ms": 14.317,
+      "max_ms": 23.107,
+      "errors": 0,
+      "rejected": 0,
+      "bytes_sent": 6643260,
+      "avg_batch_bytes": 1328.652
+    },
+    {
+      "round": 2,
+      "batches": 5000,
+      "records": 100000,
+      "seconds": 0.626864541,
+      "batches_per_sec": 7976.204862415403,
+      "records_per_sec": 159524.09724830807,
+      "p50_ms": 2.691,
+      "p99_ms": 10.491,
+      "max_ms": 17.989,
+      "errors": 0,
+      "rejected": 0,
+      "bytes_sent": 6657538,
+      "avg_batch_bytes": 1331.5076
+    },
+    {
+      "round": 3,
+      "batches": 5000,
+      "records": 100000,
+      "seconds": 0.635921583,
+      "batches_per_sec": 7862.604657027343,
+      "records_per_sec": 157252.09314054684,
+      "p50_ms": 2.773,
+      "p99_ms": 11.718,
+      "max_ms": 20.439,
+      "errors": 0,
+      "rejected": 0,
+      "bytes_sent": 6656427,
+      "avg_batch_bytes": 1331.2854
+    }
+  ],
+  "aggregation_ms": 88.12,
+  "active_instances": 5000,
+  "global_keys": 5000,
+  "top_key_instances": 3745,
+  "top_key_services": 10,
+  "heap_inuse_mb": 72.6640625,
+  "in_process": true,
+  "gomaxprocs": 8,
+  "encode_seconds_total": 58.611348059
+}

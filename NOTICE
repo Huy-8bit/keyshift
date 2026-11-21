@@ -1,0 +1,18 @@
+KeyShift
+Copyright 2026 The KeyShift Authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product depends on the following third-party software, which is
+distributed under its own license terms:
+
+  github.com/redis/go-redis/v9          BSD-2-Clause
+  github.com/redis/rueidis              Apache-2.0
+  github.com/prometheus/client_golang   Apache-2.0
+  github.com/cespare/xxhash/v2          MIT (indirect)
+  google.golang.org/protobuf            BSD-3-Clause (indirect)
+  React, React DOM                      MIT (dashboard)
+  Vite, TypeScript                      MIT, Apache-2.0 (dashboard build only)
+
+The full list of Go module dependencies is in go.mod/go.sum; the dashboard
+dependencies are listed in web/package-lock.json.

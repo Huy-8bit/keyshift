@@ -1,0 +1,48 @@
+version: "2"
+run:
+  timeout: 5m
+  build-tags: [integration]
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - bodyclose
+    - gosec
+    - unconvert
+    - nilerr
+  settings:
+    errcheck:
+      # Close/Flush on clients and HTTP writes in tests and CLI output are
+      # intentionally best-effort.
+      exclude-functions:
+        - (io.Closer).Close
+        - (*github.com/redis/go-redis/v9.Client).Close
+        - (*github.com/redis/go-redis/v9.ClusterClient).Close
+        - (*text/tabwriter.Writer).Flush
+        - (*encoding/json.Encoder).Encode
+        - fmt.Fprintln
+        - fmt.Fprintf
+        - fmt.Fprint
+    gosec:
+      excludes:
+        - G104 # covered by errcheck
+        - G115 # integer conversions are bounded by validation
+        - G304 # CLI reads user-specified files by design
+        - G404 # math/rand is used for sampling and jitter, not security
+    staticcheck:
+      checks: ["all", "-QF1001", "-ST1000", "-ST1003", "-ST1020", "-ST1021", "-ST1022"]
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [errcheck, gosec, bodyclose]
+      - path: internal/(bench|simulate|testutil)/
+        linters: [errcheck, gosec]
+      - path: examples/
+        linters: [errcheck, gosec]
+formatters:
+  enable: [gofmt]

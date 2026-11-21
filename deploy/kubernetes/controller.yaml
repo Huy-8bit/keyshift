@@ -1,0 +1,115 @@
+# KeyShift controller for Kubernetes. Create the token Secret first:
+#
+#   kubectl -n keyshift create secret generic keyshift-tokens \
+#     --from-literal=ingest="$(openssl rand -hex 32)" \
+#     --from-literal=viewer="$(openssl rand -hex 32)" \
+#     --from-literal=admin="$(openssl rand -hex 32)"
+#
+# The controller keeps aggregation state in memory (rebuilt from telemetry
+# within one report interval after a restart) and persists policies to the
+# volume below. Run a single replica: policy writes are not replicated.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keyshift
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: keyshift-controller-data
+  namespace: keyshift
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 100Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keyshift-controller
+  namespace: keyshift
+  labels: { app.kubernetes.io/name: keyshift-controller }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app.kubernetes.io/name: keyshift-controller }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: keyshift-controller }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: controller
+          image: ghcr.io/huy-8bit/keyshift-controller:0.1.0
+          args: ["--addr", ":8080", "--data-dir", "/data"]
+          env:
+            - name: KEYSHIFT_INGEST_TOKENS
+              valueFrom: { secretKeyRef: { name: keyshift-tokens, key: ingest } }
+            - name: KEYSHIFT_VIEWER_TOKENS
+              valueFrom: { secretKeyRef: { name: keyshift-tokens, key: viewer } }
+            - name: KEYSHIFT_ADMIN_TOKENS
+              valueFrom: { secretKeyRef: { name: keyshift-tokens, key: admin } }
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          resources:
+            # Sized from the 5,000-instance logical simulation
+            # (docs/benchmarks.md); validate against your own telemetry volume.
+            requests: { cpu: 250m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: keyshift-controller-data }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keyshift-controller
+  namespace: keyshift
+spec:
+  selector: { app.kubernetes.io/name: keyshift-controller }
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+---
+# Only workloads labelled keyshift.io/sdk=true (and the namespace's own
+# pods) may reach the controller. Adjust to your network model; put the
+# dashboard behind your ingress/SSO and enable TLS (--tls-cert/--tls-key) or
+# a service mesh for SDK traffic.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keyshift-controller
+  namespace: keyshift
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: keyshift-controller }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels: { keyshift.io/sdk: "true" }
+        - podSelector: {}
+      ports:
+        - { port: 8080 }

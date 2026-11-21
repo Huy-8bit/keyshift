@@ -1,0 +1,34 @@
+# Distributed telemetry load test: N Jobs each simulate a slice of SDK
+# instances against a real controller in the cluster. With 10 parallel pods
+# x 500 instances this models 5,000 SDK instances from separate network
+# endpoints. This is still a telemetry simulation, not 5,000 application
+# pods; see docs/scaling.md for the methodology.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: keyshift-telemetry-load
+  namespace: keyshift
+spec:
+  parallelism: 10
+  completions: 10
+  template:
+    metadata:
+      labels: { keyshift.io/sdk: "true" }
+    spec:
+      restartPolicy: Never
+      securityContext: { runAsNonRoot: true, runAsUser: 65532, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: load
+          image: ghcr.io/huy-8bit/keyshift-lab:0.1.0
+          args: ["simulate", "-controller", "http://keyshift-controller:8080", "-services", "10",
+                 "-instances-per-service", "50", "-rounds", "10", "-paced", "30s", "-concurrency", "16",
+                 "-instance-prefix", "$(POD_NAME)-"]
+          env:
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: KEYSHIFT_TOKEN
+              valueFrom: { secretKeyRef: { name: keyshift-tokens, key: ingest } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }

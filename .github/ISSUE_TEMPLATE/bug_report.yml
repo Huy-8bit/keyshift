@@ -1,0 +1,25 @@
+name: Bug report
+description: Report incorrect behavior, especially stale reads or resource leaks
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes: { label: What happened?, description: Include expected vs actual behavior. }
+    validations: { required: true }
+  - type: textarea
+    id: repro
+    attributes: { label: Steps to reproduce, description: Minimal code or commands. }
+    validations: { required: true }
+  - type: input
+    id: versions
+    attributes: { label: Versions, description: "KeyShift, Go, Redis server, driver (go-redis/rueidis), topology" }
+    validations: { required: true }
+  - type: textarea
+    id: doctor
+    attributes: { label: keyshift doctor output, render: text }
+  - type: checkboxes
+    id: consistency
+    attributes:
+      label: Consistency impact
+      options:
+        - label: This involves a stale or incorrect value being served (please also consider SECURITY.md if it has security impact)

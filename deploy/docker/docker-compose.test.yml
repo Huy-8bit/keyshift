@@ -1,0 +1,35 @@
+# Redis instances used by `make test-integration`. Ports are fixed so tests
+# can find them; container names are referenced by fault tests.
+name: keyshift-test
+services:
+  redis:
+    image: redis:8.6
+    container_name: keyshift-test-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports: ["16379:6379"]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 1s, retries: 30 }
+  redis-restart:
+    # Restarted by fault tests (docker restart); no persistence on purpose.
+    image: redis:8.6
+    container_name: keyshift-test-redis-restart
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports: ["16380:6379"]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 1s, retries: 30 }
+  redis-7:
+    # Older supported server: no HOTKEYS command.
+    image: redis:7.4
+    container_name: keyshift-test-redis-7
+    ports: ["16381:6379"]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 1s, retries: 30 }
+  redis-cluster:
+    image: redis:8.6
+    container_name: keyshift-test-redis-cluster
+    entrypoint: ["/start-cluster.sh"]
+    environment:
+      CLUSTER_PORTS: "17001 17002 17003"
+    volumes: ["./redis-cluster/start-cluster.sh:/start-cluster.sh:ro"]
+    ports: ["17001-17003:17001-17003"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p 17001 cluster info | grep -q cluster_state:ok"]
+      interval: 1s
+      retries: 60

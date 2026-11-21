@@ -1,0 +1,29 @@
+# Example: environment wiring for an application that embeds the KeyShift SDK.
+# The SDK itself is a Go library; there is no sidecar. Only the fields below
+# are needed to enable optional telemetry and remote policies.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-service
+spec:
+  replicas: 50
+  selector:
+    matchLabels: { app: product-service }
+  template:
+    metadata:
+      labels:
+        app: product-service
+        keyshift.io/sdk: "true"
+    spec:
+      containers:
+        - name: app
+          image: example/product-service:latest
+          env:
+            - name: POD_NAME # used as the KeyShift instance identity
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: KEYSHIFT_CONTROLLER
+              value: http://keyshift-controller.keyshift:8080
+            - name: KEYSHIFT_INGEST_TOKEN
+              valueFrom: { secretKeyRef: { name: keyshift-sdk, key: ingest } }
+            - name: KEYSHIFT_FINGERPRINT_SECRET # identical for every pod whose keys should aggregate
+              valueFrom: { secretKeyRef: { name: keyshift-sdk, key: fingerprint-secret } }
