@@ -1,0 +1,6 @@
+{
+  "mode": "explicit",
+  "pin_patterns": ["catalog:1", "catalog:2", "catalog:3"],
+  "valid_for_seconds": 600,
+  "comment": "explicit mode: only pinned keys are cached"
+}

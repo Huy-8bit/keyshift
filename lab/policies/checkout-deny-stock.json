@@ -1,0 +1,6 @@
+{
+  "mode": "adaptive",
+  "deny_patterns": ["stock:*"],
+  "valid_for_seconds": 600,
+  "comment": "stock levels are written constantly by another service; never cache them"
+}

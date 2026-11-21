@@ -4,17 +4,17 @@ Thank you for helping. KeyShift is infrastructure that sits in front of producti
 
 ## Development setup
 
-Requirements: Go 1.26+, Node.js 20+ (dashboard), Docker (integration tests and lab).
+Requirements: Go 1.26+, Docker (integration tests and lab).
 
 ```bash
 make help              # all targets
-make lint              # gofmt check, go vet, golangci-lint, dashboard typecheck
+make lint              # gofmt check, go vet, golangci-lint
 make test-race         # unit tests with the race detector
 make test-integration  # starts Redis 8.6, 7.4, and Cluster in Docker; runs integration and fault tests
 make test-fuzz         # fuzz targets (FUZZTIME=15s each)
 make bench             # micro-benchmarks
-make build             # dashboard + binaries in bin/
-make docker-up         # local lab with dashboard on :8080
+make build             # binaries in bin/
+make docker-up         # local lab: Grafana on :3000, Prometheus on :9090
 ```
 
 ## Ground rules

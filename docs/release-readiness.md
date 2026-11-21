@@ -24,13 +24,13 @@ Date: 2026-11-21. Verified on one developer machine (Apple M1 Pro, macOS, Docker
 | Local cache used for admitted reads | ✅ tested, benchmarked | hit counters in integration tests; benchmark hit ratios |
 | Client tracking invalidates entries | ✅ tested | SET, DEL, expiry, FLUSHALL, cluster, slot migration |
 | Explicit cache bypass | ✅ tested | `GetFresh`; deny patterns; explicit/off modes |
-| Admission and eviction observable | ✅ tested | `Explain`, `Stats`, Prometheus metrics, telemetry, dashboard |
+| Admission and eviction observable | ✅ tested | `Explain`, `Stats`, Prometheus metrics, telemetry, Grafana |
 | Cache resource limits enforced | ✅ tested | budget tests (entries, memory, max entry size); rueidis store budget test |
 | Controller ingests telemetry from many instances | ✅ tested, benchmarked | controller tests; end-to-end test; 5,000-instance simulation |
 | Global and service-level aggregation | ✅ tested | `TestAggregationGlobalVersusLocal`; end-to-end test |
 | Policy distribution | ✅ tested | controller, SDK, and end-to-end tests; verified live in the Docker lab |
 | CLI executes real operations | ✅ verified manually | doctor, inspect, top, stats, instances, policy lifecycle, bench, simulate against real Redis and the lab |
-| Dashboard displays real controller data | ✅ verified manually | screenshots of every view against live lab telemetry |
+| Fleet data visible in Prometheus and Grafana | ✅ verified in the lab | `TestFleetMetrics`; lab step 12; screenshots of both Grafana dashboards against live lab telemetry |
 
 ### Reliability
 
@@ -48,7 +48,7 @@ Date: 2026-11-21. Verified on one developer machine (Apple M1 Pro, macOS, Docker
 
 | Criterion | Status | Evidence |
 |---|---|---|
-| Builds | ✅ | `make build` (dashboard + 3 binaries + examples); Docker images build |
+| Builds | ✅ | `make build` (3 binaries + examples); Docker images build |
 | Unit tests | ✅ | `make test` |
 | Race tests | ✅ | `make test-race` |
 | Redis integration tests | ✅ | `make test-integration`; matrix on Redis 6.2, 7.4, 8.4, 8.6 and 8.6 Cluster |

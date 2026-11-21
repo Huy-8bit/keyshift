@@ -319,6 +319,7 @@ func (c *Client) startTelemetry() error {
 		Endpoint: strings.TrimRight(t.Endpoint, "/"), Token: t.Token, Interval: t.Interval,
 		HTTPClient: hc, Build: c.buildBatch, Logger: c.cfg.Logger,
 		OnPolicy:      func(env *policy.Envelope) { _ = c.applyEnvelope(env) },
+		OnNoPolicy:    c.revertToLocalPolicy,
 		OnContact:     func() { c.lastContact.Store(time.Now().UnixNano()) },
 		PolicyVersion: func() int64 { return c.engine.Policy().Version },
 		Service:       c.cfg.ServiceName, Instance: c.instanceID,
@@ -369,6 +370,21 @@ func (c *Client) applyEnvelope(env *policy.Envelope) error {
 	c.engine.SetPolicy(eff, true)
 	c.cfg.Logger.Info("keyshift policy applied", "version", eff.Version, "source", eff.Source, "mode", eff.Mode)
 	return nil
+}
+
+// revertToLocalPolicy drops a remote policy when the controller reports that
+// none applies any more (for example after it was deleted).
+func (c *Client) revertToLocalPolicy() {
+	if c.cfg.Telemetry.DisableRemotePolicy {
+		return
+	}
+	c.policyMu.Lock()
+	defer c.policyMu.Unlock()
+	if c.manualPolicy || c.engine.Policy().Source != "remote" {
+		return
+	}
+	c.engine.SetPolicy(policy.Resolve(c.local, nil), true)
+	c.cfg.Logger.Info("keyshift controller has no policy for this service; reverted to local policy")
 }
 
 // ApplyPolicy installs a policy programmatically. It is validated and merged
@@ -545,7 +561,7 @@ func (c *Client) Explain(key string) Decision { return c.engine.Explain(key) }
 func (c *Client) InstanceID() string { return c.instanceID }
 
 // Fingerprint returns the telemetry fingerprint of key, which is how the
-// controller and dashboard identify it.
+// controller, CLI, and Grafana identify it.
 func (c *Client) Fingerprint(key string) string { return c.hasher.Fingerprint(key) }
 
 // GoRedis returns the application go-redis client (nil for other drivers).

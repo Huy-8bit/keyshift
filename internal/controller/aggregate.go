@@ -12,7 +12,7 @@ import (
 	"github.com/Huy-8bit/keyshift/internal/telemetry"
 )
 
-// Warning is an operational warning shown in the dashboard and CLI.
+// Warning is an operational warning shown by the CLI and exported to Prometheus.
 type Warning struct {
 	Severity string `json:"severity"` // info, warning, critical
 	Code     string `json:"code"`

@@ -1,0 +1,132 @@
+# KeyShift Lab
+#
+# A self-contained environment that runs the KeyShift controller,
+# SDK-instrumented services, real Redis, Prometheus, and Grafana.
+# See lab/README.md.
+#
+#   ./lab/run.sh                                                  start + run every scenario + report
+#   docker compose -f lab/docker-compose.yml up -d --build --wait start only
+#   docker compose -f lab/docker-compose.yml down -v              stop and clean up
+name: keyshift-lab
+
+x-hardening: &hardening
+  read_only: true
+  security_opt: ["no-new-privileges:true"]
+
+services:
+  redis:
+    image: redis:8.6
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports: ["6379:6379"]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 1s, retries: 30 }
+
+  controller:
+    build: { context: .., dockerfile: deploy/docker/Dockerfile, target: controller }
+    image: keyshift/controller:lab
+    env_file: lab.env
+    environment:
+      KEYSHIFT_DATA_DIR: /data
+    command: ["--addr", ":8080", "--aggregate-interval", "5s", "--instance-min-interval", "2s", "--fresh-for", "45s",
+              "--metrics-top-keys", "25", "--metrics-instances"]
+    ports: ["8080:8080"]
+    volumes: ["controller-data:/data"]
+    healthcheck: { test: ["CMD", "/keyshift-controller", "healthcheck"], interval: 2s, retries: 30 }
+    <<: *hardening
+
+  # Six simulated pods (catalog-api x3, checkout-api x3): read-heavy catalog
+  # keys, write-heavy stock keys, and pod-local session keys.
+  demo:
+    build: { context: .., dockerfile: deploy/docker/Dockerfile, target: lab }
+    image: keyshift/lab:lab
+    env_file: lab.env
+    entrypoint: ["/keyshift-demo"]
+    command: ["-redis", "redis:6379", "-controller", "http://controller:8080",
+              "-pods", "3", "-rate", "2000", "-window", "5s", "-report", "10s"]
+    depends_on:
+      redis: { condition: service_healthy }
+      controller: { condition: service_healthy }
+    <<: *hardening
+
+  # A real HTTP service that wraps its own go-redis client with KeyShift and
+  # exposes Prometheus metrics on /metrics.
+  product-service:
+    image: keyshift/lab:lab
+    env_file: lab.env
+    environment:
+      KEYSHIFT_CONTROLLER: http://controller:8080
+    entrypoint: ["/product-service"]
+    command: ["-redis", "redis:6379", "-listen", ":8090"]
+    ports: ["8090:8090"]
+    depends_on:
+      redis: { condition: service_healthy }
+      controller: { condition: service_healthy }
+      demo: { condition: service_started }
+    <<: *hardening
+
+  # HTTP load for product-service: 80% of requests hit 5 hot products,
+  # 20% are spread over 500 products.
+  traffic:
+    image: curlimages/curl:8.11.1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        i=0
+        while true; do
+          i=$$((i + 1))
+          if [ $$((i % 5)) -eq 0 ]; then id=$$((i * 7919 % 500)); else id=$$((i % 5)); fi
+          curl -s -o /dev/null --max-time 2 "http://product-service:8090/products/$$id" || true
+        done
+    depends_on:
+      product-service: { condition: service_started }
+    <<: *hardening
+
+  # Stores the fleet metrics exported by the controller and the SDK metrics
+  # exported by product-service.
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=6h"]
+    volumes: ["./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    ports: ["9090:9090"]
+    depends_on:
+      controller: { condition: service_healthy }
+    healthcheck: { test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/ready"], interval: 2s, retries: 30 }
+
+  # Dashboards: "KeyShift Fleet" (controller view) and "KeyShift SDK"
+  # (per-service SDK metrics). Anonymous read-only access is enabled for the
+  # lab; sign in as admin / keyshift-lab to edit.
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: keyshift-lab
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/keyshift-fleet.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+    depends_on:
+      prometheus: { condition: service_healthy }
+    healthcheck: { test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"], interval: 2s, retries: 60 }
+
+  # One-shot tools: `docker compose -f lab/docker-compose.yml run --rm cli <command>`.
+  cli:
+    image: keyshift/lab:lab
+    env_file: lab.env
+    profiles: ["tools"]
+    <<: *hardening
+
+  # Separate Redis for benchmarks: `keyshift bench` runs FLUSHALL, so it never
+  # touches the lab's Redis.
+  redis-bench:
+    image: redis:8.6
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    profiles: ["tools"]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 1s, retries: 30 }
+
+volumes:
+  controller-data: {}

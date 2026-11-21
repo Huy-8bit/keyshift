@@ -1,14 +1,13 @@
 # KeyShift developer commands. Run `make help` for a summary.
 
 GO        ?= go
-NPM       ?= npm
 BIN       := bin
 PKGS      := ./...
 GOLANGCI  ?= $(shell command -v golangci-lint 2>/dev/null || echo $(HOME)/go/bin/golangci-lint)
 FUZZTIME  ?= 15s
 COMPOSE   ?= docker compose
 TEST_COMPOSE := $(COMPOSE) -f deploy/docker/docker-compose.test.yml
-LAB_COMPOSE  := $(COMPOSE) -f deploy/docker/docker-compose.yml
+LAB_COMPOSE  := $(COMPOSE) -f lab/docker-compose.yml
 VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS   := -s -w
 
@@ -20,25 +19,24 @@ export KEYSHIFT_TEST_REDIS_OLD_ADDR     ?= localhost:16381
 export KEYSHIFT_TEST_CLUSTER_ADDRS      ?= 127.0.0.1:17001,127.0.0.1:17002,127.0.0.1:17003
 
 .PHONY: help fmt fmt-check vet lint test test-race test-integration test-fuzz bench bench-lab simulate \
-        build web docker-build docker-up docker-down test-infra-up test-infra-down vuln clean ci
+        build docker-build docker-up docker-down lab test-infra-up test-infra-down vuln clean ci
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
 fmt: ## Format Go and TypeScript sources
-	gofmt -w $$(git ls-files '*.go' 2>/dev/null || find . -name '*.go' -not -path './web/node_modules/*')
+	gofmt -w $$(git ls-files '*.go' 2>/dev/null || find . -name '*.go')
 
 fmt-check: ## Fail if Go sources are not gofmt-formatted
-	@out=$$(gofmt -l $$(find . -name '*.go' -not -path './web/node_modules/*')); \
+	@out=$$(gofmt -l $$(find . -name '*.go')); \
 	if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 
 vet: ## Run go vet (including integration-tagged files)
 	$(GO) vet $(PKGS)
 	$(GO) vet -tags integration $(PKGS)
 
-lint: fmt-check vet ## Run gofmt check, go vet, golangci-lint, and the dashboard type check
+lint: fmt-check vet ## Run gofmt check, go vet, and golangci-lint
 	$(GOLANGCI) run $(PKGS)
-	cd web && $(NPM) run typecheck
 
 test: ## Run unit tests
 	$(GO) test -count=1 $(PKGS)
@@ -79,11 +77,7 @@ bench-lab: test-infra-up build ## Run the scenario benchmark suite against the t
 simulate: build ## Run the 5,000-instance logical controller simulation
 	$(BIN)/keyshift simulate
 
-web: ## Build the dashboard into web/dist (embedded by the controller)
-	cd web && $(NPM) ci --no-audit --no-fund && $(NPM) run build
-
-build: ## Build all binaries into bin/ (builds the dashboard first if npm is available)
-	@if command -v $(NPM) >/dev/null 2>&1; then $(MAKE) web; else echo "npm not found: controller built without dashboard"; fi
+build: ## Build all binaries into bin/
 	$(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/keyshift ./cmd/keyshift
 	$(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/keyshift-controller ./cmd/keyshift-controller
 	$(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/keyshift-bench ./cmd/keyshift-bench
@@ -93,12 +87,15 @@ docker-build: ## Build container images
 	docker build -f deploy/docker/Dockerfile -t keyshift/controller:$(VERSION) --target controller .
 	docker build -f deploy/docker/Dockerfile -t keyshift/lab:$(VERSION) --target lab .
 
-docker-up: ## Start the local lab: Redis, controller with dashboard, demo workload
+docker-up: ## Start the lab: Redis, controller, SDK services, Prometheus, Grafana
 	$(LAB_COMPOSE) up -d --build --wait
-	@echo "Dashboard: http://localhost:8080  (viewer token: see deploy/docker/lab.env)"
+	@echo "Grafana: http://localhost:3000  Prometheus: http://localhost:9090  Controller API: http://localhost:8080"
 
-docker-down: ## Stop the local lab
-	$(LAB_COMPOSE) down -v
+docker-down: ## Stop the lab and remove its volumes
+	$(LAB_COMPOSE) --profile tools down -v
+
+lab: ## Start the lab and run every lab scenario (report in lab/results/)
+	./lab/run.sh
 
 vuln: ## Scan dependencies for known vulnerabilities
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@latest $(PKGS)
@@ -106,4 +103,4 @@ vuln: ## Scan dependencies for known vulnerabilities
 ci: lint test-race build ## What CI runs without Docker
 
 clean: ## Remove build outputs
-	rm -rf $(BIN) web/dist/assets web/dist/index.html
+	rm -rf $(BIN)

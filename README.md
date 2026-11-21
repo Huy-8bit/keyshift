@@ -16,7 +16,7 @@
 
 KeyShift is a Go SDK and optional control plane that **automatically finds the Redis keys worth caching in each application instance** and serves them from local memory. Invalidation comes from Redis server-assisted client-side caching (`CLIENT TRACKING`). Everything else goes straight to Redis.
 
-> **Status: 0.1.0, pre-1.0.** The SDK, controller, CLI, dashboard, and lab are implemented and tested against real Redis (6.2 – 8.6, standalone and Cluster). APIs may change before 1.0. Please read [Limitations](docs/limitations.md) and the [Consistency contract](docs/consistency.md) before production use.
+> **Status: 0.1.0, pre-1.0.** The SDK, controller, CLI, Grafana dashboards, and lab are implemented and tested against real Redis (6.2 – 8.6, standalone and Cluster). APIs may change before 1.0. Please read [Limitations](docs/limitations.md) and the [Consistency contract](docs/consistency.md) before production use.
 
 ## Table of contents
 
@@ -56,8 +56,9 @@ KeyShift makes the decision per instance, from measured workload: it caches a ke
 - **Built on mature clients**: go-redis v9 (standalone) and rueidis (standalone and Redis Cluster, `OPTIN` tracking). No custom RESP or tracking protocol code.
 - **Safety first**: caching is suspended and the local cache flushed when tracking cannot be confirmed. There is a hard `max_staleness` bound, deny patterns, and an authoritative `GetFresh`.
 - **Observability**: Prometheus metrics with no key labels, structured logs, and per-key decisions.
-- **Optional controller**: fleet-wide hot-key ranking (local vs global), versioned policies with staged rollout and rollback, and a REST API.
-- **Dashboard and CLI**: a React dashboard embedded in the controller, plus `keyshift doctor | inspect | top | stats | instances | policy | bench | simulate`.
+- **Optional controller**: fleet-wide hot-key ranking (local vs global), versioned policies with staged rollout and rollback, a REST API, and Prometheus fleet metrics.
+- **Prometheus and Grafana**: the controller exports the whole fleet view (workload, per-service breakdown, global hot keys, cache efficiency, policies, warnings) as Prometheus metrics; ready-made Grafana dashboards are included.
+- **CLI**: `keyshift doctor | inspect | top | stats | instances | policy | bench | simulate`.
 - **Redis 8.6 `HOTKEYS` support**: opt-in, time-bounded server-side diagnostics.
 - **Lab**: a Docker Compose stack, fault-injection tests, a reproducible benchmark suite, and a 5,000-instance control-plane simulation.
 
@@ -90,7 +91,7 @@ Optional tools:
 
 ```bash
 go install github.com/Huy-8bit/keyshift/cmd/keyshift@latest             # CLI
-go install github.com/Huy-8bit/keyshift/cmd/keyshift-controller@latest  # controller (build with `make build` to embed the dashboard)
+go install github.com/Huy-8bit/keyshift/cmd/keyshift-controller@latest  # optional controller
 ```
 
 ## Quick start
@@ -194,10 +195,11 @@ More examples are in [`examples/`](examples/): a minimal program, an HTTP servic
 
 ```bash
 git clone https://github.com/Huy-8bit/keyshift.git && cd keyshift
-make docker-up       # Redis 8.6 + controller + dashboard + simulated services
+make docker-up       # Redis 8.6 + controller + SDK services + Prometheus + Grafana
+make lab             # or: start everything and run all lab scenarios with a report
 ```
 
-Open <http://localhost:8080> and sign in with a token from [`deploy/docker/lab.env`](deploy/docker/lab.env), or use the CLI:
+Open Grafana at <http://localhost:3000> (dashboards **KeyShift Fleet** and **KeyShift SDK**) and Prometheus at <http://localhost:9090>, or use the CLI with a token from [`lab/lab.env`](lab/lab.env):
 
 ```bash
 export KEYSHIFT_CONTROLLER=http://localhost:8080 KEYSHIFT_TOKEN=lab-viewer-token-change-me
@@ -205,6 +207,8 @@ keyshift stats
 keyshift top --watch 5s
 make docker-down
 ```
+
+The [lab guide](lab/README.md) describes every scenario, how to explore by hand, and how to break things on purpose.
 
 ## Configuration
 
@@ -237,7 +241,8 @@ See the [configuration reference](docs/configuration.md) for every option, the p
                └─ telemetry (optional, batched, fingerprints only) ──► keyshift-controller
                                                                       ├─ global ranking
                                                                       ├─ versioned policies
-                                                                      └─ API ◄─ CLI / dashboard
+                                                                      ├─ API ◄─ CLI
+                                                                      └─ /metrics ─► Prometheus ─► Grafana
 ```
 
 The controller is never on the Redis request path. If it is down, applications keep working with their last valid or local policy. Read more in [Architecture](docs/architecture.md) and [How it works](docs/how-it-works.md).
@@ -281,7 +286,7 @@ Details, minimum ACL, and the versioning policy are in [docs/compatibility.md](d
 
 - Cache more read commands (`HGET`, `MGET`, …) with verified invalidation semantics
 - Distributed scale tests on Kubernetes and long-running soak tests
-- Highly available controller and SSO integration for the dashboard
+- Highly available controller and SSO for the controller API
 - Redis Sentinel, Valkey, and managed-Redis verification
 - A stable 1.0 API
 

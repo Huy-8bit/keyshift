@@ -82,7 +82,7 @@ Fields include read, write, fill, and invalidation rates, observed or predicted 
 
 ## Tuning guidance
 
-- **Few hits, many candidates in `cold`** with reason `read rate … below min_read_rate`: per-instance traffic is too spread out. Lowering `min_read_rate` adds memory and tracking cost for little gain; check `local_share` and `max_local_rate` in the dashboard first.
+- **Few hits, many candidates in `cold`** with reason `read rate … below min_read_rate`: per-instance traffic is too spread out. Lowering `min_read_rate` adds memory and tracking cost for little gain; check `local_share` and `max_local_rate` in the Grafana "KeyShift Fleet" dashboard first.
 - **Many cooldowns**: the keyspace has external writers. This is the engine working as designed; deny the pattern to avoid probation fills entirely.
 - **Budget rejections** (`keyshift_admission_decisions_total{decision="budget_reject"}`): raise the budget, or confirm the extra keys are worth it in the "Most beneficial keys" view.
 - **`max_staleness`** caps the best hit ratio of a key at `1 - 1/(read_rate × max_staleness)`. For a key read 10×/s with 3 s staleness the ceiling is 96.7%. Raising it improves hits but lengthens the worst-case stale window if invalidations are lost.

@@ -82,7 +82,7 @@ func main() {
 			Endpoint:          ep,
 			Token:             os.Getenv("KEYSHIFT_INGEST_TOKEN"),
 			FingerprintSecret: []byte(os.Getenv("KEYSHIFT_FINGERPRINT_SECRET")),
-			// Product keys are not sensitive: allow their names in the dashboard.
+			// Product keys are not sensitive: allow their names in Grafana and the CLI.
 			DisplayKeyPatterns: []string{"product:*"},
 		}
 	}

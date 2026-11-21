@@ -88,7 +88,7 @@ type Policy struct {
 	// DenyPatterns are glob patterns of keys that are never cached.
 	DenyPatterns []string `json:"deny_patterns,omitempty"`
 	// DenyFingerprints are key fingerprints that are never cached. They let
-	// operators exclude a key seen in the dashboard without knowing its name.
+	// operators exclude a key seen in Grafana or `keyshift top` without knowing its name.
 	DenyFingerprints []string `json:"deny_fingerprints,omitempty"`
 
 	// ValidForSeconds bounds how long an SDK keeps using this policy without

@@ -326,7 +326,7 @@ func TestPolicyLifecycleAndDistribution(t *testing.T) {
 		t.Fatal("unchanged policy must not be resent")
 	}
 	_, r = send(t, ts, batch("other", "pod-9", 1))
-	if r.Policy == nil || r.Policy.Current.Version != 1 {
+	if r.Policy == nil || r.Policy.Current.Version != 1 || r.NoPolicy {
 		t.Fatalf("default policy not distributed: %+v", r)
 	}
 	// Staged rollout keeps the previous policy as baseline.
@@ -354,10 +354,17 @@ func TestPolicyLifecycleAndDistribution(t *testing.T) {
 	if resp.StatusCode != 204 || s.policies.For("svc").Current.Version != 1 {
 		t.Fatal("delete should fall back to default")
 	}
+	resp, _ = do(t, ts, "DELETE", "/api/v1/policies/_default", adminTok, nil)
+	if resp.StatusCode != 204 {
+		t.Fatal("delete default")
+	}
+	if _, r := send(t, ts, batch("svc", "pod-1", 10)); !r.NoPolicy || r.Policy != nil {
+		t.Fatalf("with no policy left the response must say so: %+v", r)
+	}
 	_, body = do(t, ts, "GET", "/api/v1/policies/history", viewerTok, nil)
 	var hist []HistoryEntry
 	json.Unmarshal(body, &hist)
-	if len(hist) < 6 || hist[0].Action != "delete" {
+	if len(hist) < 7 || hist[0].Action != "delete" {
 		t.Fatalf("history: %s", body)
 	}
 	// Persistence across restarts.
@@ -367,8 +374,10 @@ func TestPolicyLifecycleAndDistribution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if env := s2.policies.For("anything"); env == nil || env.Current.Version != 1 {
-		t.Fatal("policies not persisted")
+	// Every policy was deleted above: the restart must keep that state, the
+	// history, and the version counter.
+	if s2.policies.For("svc") != nil || len(s2.policies.History("")) < 7 {
+		t.Fatal("policy state or history not persisted")
 	}
 	if p, _ := s2.policies.Put(&policy.Policy{Mode: policy.ModeAdaptive}, 100, "t"); p.Current.Version <= 4 {
 		t.Fatalf("version counter not persisted: %d", p.Current.Version)

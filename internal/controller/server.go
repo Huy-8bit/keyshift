@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -46,9 +45,12 @@ type Config struct {
 	PerInstanceMinInterval time.Duration
 	// MetricsPublic serves /metrics without authentication.
 	MetricsPublic bool
-	// UI is the dashboard file system (nil disables it).
-	UI     fs.FS
-	Logger *slog.Logger
+	// MetricsTopKeys bounds the hot keys exported as Prometheus series.
+	MetricsTopKeys int
+	// MetricsInstances exports per-instance series (one set per SDK
+	// instance; consider cardinality before enabling at large scale).
+	MetricsInstances bool
+	Logger           *slog.Logger
 }
 
 // DefaultConfig returns production-oriented defaults sized for ~5,000 SDK
@@ -69,6 +71,7 @@ func DefaultConfig() Config {
 		IngestBurst:            4000,
 		PerInstanceMinInterval: 5 * time.Second,
 		MetricsPublic:          true,
+		MetricsTopKeys:         20,
 	}
 }
 
@@ -129,6 +132,7 @@ func New(cfg Config) (*Server, error) {
 		prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "keyshift_controller_ingest_bytes_total", Help: "Telemetry bytes received (as sent, possibly compressed)."},
 			func() float64 { return float64(s.bytesIn.Load()) }),
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+		newFleetCollector(s),
 	)
 	s.routes()
 	s.Aggregate(time.Now())
@@ -283,34 +287,9 @@ func (s *Server) routes() {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	// Dashboard.
-	if s.cfg.UI != nil {
-		if _, err := fs.Stat(s.cfg.UI, "index.html"); err == nil {
-			s.mux.Handle("GET /", spaHandler(s.cfg.UI))
-			return
-		}
-	}
 	s.route("GET /{$}", "root", RoleNone, func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"service": "keyshift-controller", "version": Version,
-			"dashboard": "not built into this binary; run `make web build`"})
-	})
-}
-
-func spaHandler(ui fs.FS) http.Handler {
-	files := http.FileServerFS(ui)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'")
-		p := strings.TrimPrefix(r.URL.Path, "/")
-		if p != "" {
-			if _, err := fs.Stat(ui, p); err != nil {
-				r = r.Clone(r.Context())
-				r.URL.Path = "/"
-			}
-		}
-		files.ServeHTTP(w, r)
+			"api": "/api/v1", "metrics": "/metrics", "health": "/healthz"})
 	})
 }
 
@@ -383,7 +362,9 @@ func (s *Server) handleTelemetry(w http.ResponseWriter, r *http.Request) {
 		s.ingest.WithLabelValues("accepted").Inc()
 	}
 	resp := telemetry.Response{Accepted: true, Duplicate: res == IngestDuplicate, NextReportSeconds: s.cfg.ReportIntervalSeconds}
-	if env := s.policies.For(b.Service); env != nil {
+	env := s.policies.For(b.Service)
+	resp.NoPolicy = env == nil
+	if env != nil {
 		sel := env.Select(b.Instance)
 		var selVersion int64
 		if sel != nil {

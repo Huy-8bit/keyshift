@@ -8,7 +8,7 @@
 | github.com/redis/go-redis/v9 | v9.23.0 | client-side caching API is marked *experimental* by go-redis |
 | github.com/redis/rueidis | v1.0.80 | |
 | github.com/prometheus/client_golang | v1.25.0 | |
-| Dashboard | React 19.3, TypeScript 5.9, Vite 6.4 | built into the controller binary |
+| Lab dashboards | Prometheus 3.1, Grafana 11.4 | container images in `lab/` (not dependencies of the SDK or controller) |
 
 KeyShift depends on documented extension points: `redis.Options.ClientSideCache` with `redis.NewLocalCache`, `rueidis.ClientOption.NewCacheStoreFn` with `rueidis.NewSimpleCacheAdapter`, and `Completed.Pin`. The go-redis cache namespace layout used to map invalidated keys back to application keys is covered by integration tests for the pinned version (`TestGoRedisMissThenHitAndKeyNamespace`). **Upgrade go-redis only together with a passing `make test-integration`.**
 

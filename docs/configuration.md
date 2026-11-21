@@ -116,6 +116,7 @@ Merge rules (`policy.Resolve`):
 - Pin, deny, and deny-fingerprint lists are the union of local and remote lists.
 - Unknown fields, invalid modes, broken hysteresis (`exit_hit_ratio > min_hit_ratio`), oversized documents (> 256 KiB), and malformed fingerprints are rejected. The SDK keeps its last valid policy.
 - A remote policy expires after `valid_for_seconds` (default 600) without controller contact, and the SDK reverts to its local policy.
+- When an administrator deletes the policy that applies to a service, the controller tells SDKs on their next upload that no policy applies, and they revert to their local policy immediately.
 
 Validate a file locally:
 

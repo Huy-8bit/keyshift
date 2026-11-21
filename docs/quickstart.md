@@ -84,7 +84,7 @@ ks, _ := keyshift.New(keyshift.Config{ServiceName: "svc", Metrics: keyshift.Metr
 http.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 ```
 
-## 6. Optional: controller and dashboard
+## 6. Optional: controller, Prometheus, and Grafana
 
 ```bash
 export KEYSHIFT_INGEST_TOKENS=$(openssl rand -hex 32)
@@ -104,7 +104,7 @@ Telemetry: keyshift.TelemetryConfig{
 },
 ```
 
-Open `http://localhost:8080` and sign in with the viewer or admin token, or use the CLI:
+Scrape the controller's `/metrics` with Prometheus and import the dashboards from `lab/grafana/dashboards/` into Grafana, or use the CLI:
 
 ```bash
 export KEYSHIFT_CONTROLLER=http://localhost:8080 KEYSHIFT_TOKEN=$KEYSHIFT_VIEWER_TOKENS
@@ -115,6 +115,6 @@ keyshift top --watch 5s
 ## 7. Everything at once: the lab
 
 ```bash
-make docker-up    # Redis, controller + dashboard, simulated pods, product-service
+make docker-up    # Redis, controller, simulated pods, product-service, Prometheus, Grafana
 make docker-down
 ```

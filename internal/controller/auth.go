@@ -1,6 +1,6 @@
 // Package controller implements the optional KeyShift control plane:
 // telemetry ingestion, bounded global aggregation, versioned policy
-// distribution, and the API consumed by the CLI and dashboard.
+// distribution, and the API consumed by the CLI, and Prometheus metrics of the fleet.
 //
 // The controller is never on the Redis request path. SDK instances keep
 // working with their last valid (or local) policy when it is unavailable.
@@ -22,7 +22,7 @@ const (
 	RoleNone Role = iota
 	// RoleIngest may upload telemetry and fetch policies (SDKs).
 	RoleIngest
-	// RoleViewer may read aggregated data (dashboard, CLI).
+	// RoleViewer may read aggregated data (CLI, API).
 	RoleViewer
 	// RoleAdmin may also change policies.
 	RoleAdmin

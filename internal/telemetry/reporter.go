@@ -40,6 +40,9 @@ type ReporterConfig struct {
 	Build func() *Batch
 	// OnPolicy receives a policy envelope from the controller.
 	OnPolicy func(env *policy.Envelope)
+	// OnNoPolicy is called when the controller reports that no policy
+	// applies to this service.
+	OnNoPolicy func()
 	// OnContact is called after every successful exchange with the
 	// controller (used for policy staleness tracking).
 	OnContact func()
@@ -264,8 +267,11 @@ func (r *Reporter) post(body []byte, gz bool) (time.Duration, error) {
 			return 0, fmt.Errorf("decode response: %w", err)
 		}
 		r.contact()
-		if out.Policy != nil && r.cfg.OnPolicy != nil {
+		switch {
+		case out.Policy != nil && r.cfg.OnPolicy != nil:
 			r.cfg.OnPolicy(out.Policy)
+		case out.NoPolicy && r.cfg.OnNoPolicy != nil:
+			r.cfg.OnNoPolicy()
 		}
 		return 0, nil
 	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable:

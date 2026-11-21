@@ -94,7 +94,7 @@ spec:
 ---
 # Only workloads labelled keyshift.io/sdk=true (and the namespace's own
 # pods) may reach the controller. Adjust to your network model; put the
-# dashboard behind your ingress/SSO and enable TLS (--tls-cert/--tls-key) or
+# API behind your ingress/SSO and enable TLS (--tls-cert/--tls-key) or
 # a service mesh for SDK traffic.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

@@ -413,6 +413,14 @@ func TestRemotePolicyLifecycle(t *testing.T) {
 	if err := c.applyEnvelope(other); err == nil {
 		t.Fatal("foreign service policy accepted")
 	}
+	// The controller reporting "no policy" (e.g. after deletion) reverts at once.
+	c.revertToLocalPolicy()
+	if s := c.Stats(); s.PolicySource != "local" {
+		t.Fatalf("no-policy response did not revert: %+v", s)
+	}
+	if err := c.applyEnvelope(env); err != nil || c.Stats().PolicyVersion != 5 {
+		t.Fatal("re-applying the policy failed")
+	}
 	// Staleness: no contact for longer than ValidFor reverts to local.
 	c.lastContact.Store(time.Now().Add(-2 * time.Minute).UnixNano())
 	c.checkPolicyStaleness(time.Now())

@@ -7,7 +7,7 @@ KeyShift has five parts. Only the SDK runs on the request path.
 | Go SDK | `pkg/keyshift` + `internal/*` | detection, admission, cached reads, safety, metrics, telemetry | yes |
 | Controller | `cmd/keyshift-controller`, `internal/controller` | telemetry ingestion, global aggregation, policies, API | no |
 | CLI | `cmd/keyshift`, `internal/cli` | diagnostics, queries, policy management, benchmarks | no |
-| Dashboard | `web/` (embedded into the controller) | operational UI over the controller API | no |
+| Grafana dashboards | `lab/grafana/` | fleet and SDK dashboards over Prometheus metrics | no |
 | Lab | `internal/bench`, `internal/simulate`, `test/`, `deploy/docker` | benchmarks, fault injection, scale simulation | no |
 
 ## Package map
@@ -28,7 +28,7 @@ internal/cli            keyshift command implementations
 internal/bench          scenario benchmark harness
 internal/simulate       large-scale logical telemetry simulation
 internal/testutil       Redis test helpers, fault-injecting TCP proxy
-web/                    React + TypeScript dashboard (Vite)
+lab/grafana/            Grafana provisioning and dashboards
 ```
 
 ## SDK data flow

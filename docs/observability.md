@@ -80,6 +80,34 @@ The SDK logs through `Config.Logger` (`log/slog`) at state transitions only: sta
 | `keyshift_controller_ingest_bytes_total` | |
 | Go runtime and process collectors | |
 
-## Dashboard
+## Fleet metrics (controller)
 
-The dashboard (served by the controller at `/`) shows the overview with warnings, tracking health, policy versions, and the global workload over time; the hot-key ranking with local vs global rates, service distribution, admission states, and trends; cache efficiency with savings, memory, invalidations, churn, beneficial keys, and churning keys; policies with history, staged rollout, rollback, and disable; and instances with identity, SDK status, tracking health, telemetry freshness, and cache usage. It handles loading, empty, error, unauthorized, and disconnected states.
+The controller exports the aggregated fleet view on `/metrics`, so Prometheus keeps the history and Grafana renders it. Values come from the latest aggregation (every `--aggregate-interval`).
+
+| Metric | Labels | Meaning |
+|---|---|---|
+| `keyshift_fleet_instances` | `state` (active, stale) | SDK instances known to the controller |
+| `keyshift_fleet_services` | | services with active instances |
+| `keyshift_fleet_rate` | `kind` (reads, local_hits, redis_reads, writes, invalidations, evictions, admissions, demotions) | fleet-wide per-second rates |
+| `keyshift_fleet_local_hit_ratio` | | share of SDK reads served locally |
+| `keyshift_fleet_cache_entries`, `_cache_memory_bytes`, `_cache_memory_limit_bytes`, `_admitted_keys` | | local caches summed over active instances |
+| `keyshift_fleet_tracking_instances` | `state` | active instances by tracking state |
+| `keyshift_fleet_policy_instances` | `version`, `source` | active instances by enforced policy |
+| `keyshift_fleet_warnings` | `code`, `severity` | active operational warnings (value: affected count) |
+| `keyshift_fleet_service_*` | `service` (+ `kind` for `_rate`) | instances, rates, hit ratio, cache memory, admitted keys, unhealthy instances per service |
+| `keyshift_fleet_hotkey_rate` | `key`, `fp`, `classification`, `kind` (reads, writes, saved, fills, invalidations, max_local) | the `--metrics-top-keys` hottest keys (default 20) |
+| `keyshift_fleet_hotkey_instances` | `key`, `fp`, `state` (reporting, admitted, candidate, cold, cooldown, bypassed) | instances reporting each hot key, by admission state |
+| `keyshift_fleet_hotkey_cached_hit_ratio` | `key`, `fp` | hit ratio of a hot key where it is cached |
+| `keyshift_fleet_instance_*` | `service`, `sdk_instance` | per-instance rates, hit ratio, tracking health, telemetry age (only with `--metrics-instances`) |
+| `keyshift_controller_policy_version`, `_rollout_percent`, `_mode` | `scope` (+ `mode`) | current policies |
+
+**Cardinality**: the `key` label is the name allowed by the SDK's `DisplayKeyPatterns`, or `fp:` plus the first 12 hex digits of the fingerprint; it never contains other raw key names. Hot-key series are bounded by `--metrics-top-keys`, service series by `--max-services`, and per-instance series are opt-in because they grow with the fleet (5,000 instances × 11 series at the target scale).
+
+## Grafana dashboards
+
+`lab/grafana/dashboards/` contains two dashboards, provisioned automatically in the lab:
+
+- **KeyShift Fleet** (controller metrics): active instances, hit ratio, Redis reads avoided, unhealthy tracking; global workload over time; per-service charts and table; the global hot-key table (global vs busiest-instance rate, savings, writes, on how many instances each key is cached); cache efficiency (invalidations, evictions, admission churn, memory utilization); SDK instances; policies, policy versions in use, warnings; controller ingestion, aggregation latency, and memory.
+- **KeyShift SDK** (metrics scraped from services that embed the SDK, with a `service` selector): hit ratio, Redis reads avoided, admitted keys, cache memory, tracking state, policy version; requests by path; hits, misses, bypasses, fallbacks; read latency p50/p99 by path; admission decisions; invalidations and evictions; residency; candidates; detector coverage; telemetry.
+
+To use them outside the lab, import the JSON files into Grafana and point the `prometheus` datasource UID at your Prometheus.

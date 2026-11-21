@@ -22,7 +22,7 @@ Background for contributors: facts about the Redis client libraries that shaped 
 | `doctor` on Cluster | copying a live go-redis client's `Options` shared its push processor with the tracked client | tracked client gets its own processor and maintenance config |
 | race detector (connection-cut test) | rueidis builder buffer reused while its background writer still read it | pin all rueidis commands |
 | Zipf benchmark | the admitted set was capped at TopK because incumbents filled the candidate list | evaluate TopK candidates beyond admitted keys |
-| dashboard review | telemetry hits measured at upload time while reads covered closed windows | snapshot counters at window rotation |
+| UI review (before the UI was replaced by Grafana) | telemetry hits measured at upload time while reads covered closed windows | snapshot counters at window rotation |
 | lab demo | 645 admissions/demotions per minute from noisy short windows | EWMA and decayed-count smoothing (210/min) |
 | benchmark stale-read detector (`local-hot`) | a fill in flight during a local write cached the pre-write value | fill guard rejects or re-drops overlapping fills |
 | code review | `New` leaked its Redis client on invalid config; Redis errors on the cache path triggered a second request; `Explain` blamed tracking health when caching was unsupported | validate first; fall back only on transport errors; explicit unavailable reason |
@@ -34,3 +34,4 @@ Background for contributors: facts about the Redis client libraries that shaped 
 | Docker lab policy change | named volume `/data` was root-owned while the distroless image runs as non-root, so policies could not be saved; the error was reported as HTTP 400 | image pre-creates `/data` owned by uid 65532; persistence failures return 500 and roll back |
 | final integration run | telemetry reporter test stopped the reporter before it processed the last response | test waits on the client-side contact count |
 | restarted test cluster container | stale `nodes.conf` made the cluster start script exit | test cluster always starts from clean node state |
+| lab policy scenario | deleting a policy on the controller left SDKs on the deleted policy until `valid_for_seconds` expired | telemetry responses carry `no_policy`; SDKs revert to their local policy at once (verified in the lab: 22 s) |

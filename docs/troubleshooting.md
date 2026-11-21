@@ -53,12 +53,15 @@ Please report reproducible stale reads; see the bug template.
 - HTTP 401/403: wrong token or wrong role (SDKs need an **ingest** token).
 - HTTP 429: global or per-instance rate limit (default minimum 5 s between uploads per instance).
 - HTTP 503 with reason `capacity`: `--max-instances` or `--max-services` reached.
-- The dashboard warns `instance_fingerprints`: SDKs run without a shared `FingerprintSecret`, so keys cannot be aggregated across pods.
+- The `keyshift_fleet_warnings{code="instance_fingerprints"}` metric (or `keyshift stats`) reports SDKs run without a shared `FingerprintSecret`, so keys cannot be aggregated across pods.
 - The first upload is delayed by a random fraction of the interval (up to 30 s by default).
 
-## Dashboard shows "Dashboard not built"
+## Grafana panels are empty
 
-The controller was built without `web/dist`. Run `make build` (requires npm) or use the container image.
+- Prometheus must scrape the controller's `/metrics` (public by default; with `--metrics-public=false` configure a bearer token for the viewer role).
+- Fleet panels show data only after SDKs report telemetry (up to one report interval, 30 s by default).
+- The "SDK instances" table needs the controller flag `--metrics-instances`.
+- The "KeyShift SDK" dashboard needs Prometheus to scrape the services that embed the SDK (`Metrics.Registerer`).
 
 ## Redis memory or CPU rose after enabling KeyShift
 

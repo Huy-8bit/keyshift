@@ -140,6 +140,10 @@ type Response struct {
 	PolicyVersion int64 `json:"policy_version"`
 	// NextReportSeconds lets the controller slow reporters down.
 	NextReportSeconds int `json:"next_report_seconds,omitempty"`
+	// NoPolicy is true when no controller policy applies to the instance's
+	// service (for example after it was deleted). SDKs then return to their
+	// local policy instead of waiting for the remote one to expire.
+	NoPolicy bool `json:"no_policy,omitempty"`
 }
 
 var validStates = map[string]bool{"cold": true, "candidate": true, "admitted": true, "cooldown": true,

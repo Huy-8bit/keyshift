@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/Huy-8bit/keyshift/internal/controller"
-	webui "github.com/Huy-8bit/keyshift/web"
 )
 
 func main() {
@@ -118,6 +117,8 @@ func run(args []string) error {
 	fs.IntVar(&def.IngestBurst, "ingest-burst", def.IngestBurst, "global telemetry burst")
 	fs.DurationVar(&def.PerInstanceMinInterval, "instance-min-interval", def.PerInstanceMinInterval, "minimum interval between uploads per instance")
 	fs.BoolVar(&def.MetricsPublic, "metrics-public", def.MetricsPublic, "serve /metrics without authentication")
+	fs.IntVar(&def.MetricsTopKeys, "metrics-top-keys", def.MetricsTopKeys, "hot keys exported as Prometheus series")
+	fs.BoolVar(&def.MetricsInstances, "metrics-instances", def.MetricsInstances, "export per-instance Prometheus series")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -161,13 +162,9 @@ func run(args []string) error {
 	def.Auth = auth
 	def.DataDir = *dataDir
 	def.Logger = log
-	def.UI = webui.FS()
 	srv, err := controller.New(def)
 	if err != nil {
 		return err
-	}
-	if !webui.Built() {
-		log.Warn("dashboard assets are not embedded; run `make web` before building to include the dashboard")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
