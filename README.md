@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/status-pre--1.0-orange" alt="Status: pre-1.0">
 </p>
 
-KeyShift is a Go SDK and optional control plane that **automatically finds the Redis keys worth caching in each application instance** and serves them from local memory. Invalidation comes from Redis server-assisted client-side caching (`CLIENT TRACKING`). Everything else goes straight to Redis.
+KeyShift is a Go SDK for selective Redis client-side caching. Each application instance observes its own workload, admits keys that are likely to benefit from caching, and serves admitted entries from local memory. Redis server-assisted client tracking delivers invalidations; reads that are not admitted go directly to Redis. An optional controller provides fleet visibility and policy management.
 
 > **Status: 0.1.0, pre-1.0.** The SDK, controller, CLI, Grafana dashboards, and lab are implemented and tested against real Redis (6.2 – 8.6, standalone and Cluster). APIs may change before 1.0. Please read [Limitations](docs/limitations.md) and the [Consistency contract](docs/consistency.md) before production use.
 
@@ -40,22 +40,22 @@ KeyShift is a Go SDK and optional control plane that **automatically finds the R
 
 ## Why KeyShift
 
-Redis client-side caching can remove most reads of hot keys from Redis, but turning it on for everything has costs that grow with the size of a fleet:
+Client-side caching can reduce Redis traffic, but caching every read has costs that grow with the fleet:
 
-- **Write-heavy keys churn.** Every write invalidates every cached copy, and readers can see stale values while invalidations are in flight.
-- **Redis tracks every key you read.** With default tracking, the server's tracking table and invalidation traffic grow with each instance's whole read set.
-- **Globally hot is not locally hot.** A key read 2,000 times per second across 50 pods may be read only 40 times per second by each pod.
+- **Writes cause churn.** A write invalidates tracked copies, and readers can see an older value while the invalidation is in flight.
+- **Tracking consumes server resources.** Default tracking records every key read on a tracked connection, including keys that are unlikely to be reused.
+- **Fleet-wide popularity can be misleading.** A key read 2,000 times per second across 50 pods may see only 40 reads per second on each pod.
 
-KeyShift makes the decision per instance, from measured workload: it caches a key only when the local read rate and the observed hit ratio justify it. Then it keeps measuring, and backs off when invalidations show that caching does not pay.
+KeyShift makes admission decisions per instance. It predicts the benefit from local reads and writes, then uses observed cache behavior to keep or demote admitted keys. This approach trades some hit rate and warmup time for a smaller tracked working set.
 
 ## Features
 
-- **Drop-in Go SDK**: `Get`, `GetBytes`, `GetFresh`, `MGet`, `Set`, `Del`, and `NotifyWrite` for writes made through other paths. It can wrap your existing go-redis client and works without any extra infrastructure.
-- **Hot-key detection**: a bounded, lock-sharded Space-Saving top-K detector with window decay, zero allocations per read, and fixed memory.
-- **Adaptive admission**: read rate, predicted and observed hit ratio, write and invalidation rates, value size, budgets, hysteresis, and exponential cooldown. `Explain(key)` tells you why a key is or is not cached.
+- **Go SDK**: `Get`, `GetBytes`, `GetFresh`, `MGet`, `Set`, `Del`, and `NotifyWrite` cover common string-key operations. The SDK can wrap an existing go-redis client and does not require the controller.
+- **Hot-key detection**: a bounded, lock-sharded Space-Saving top-K detector with window decay and zero-allocation observations in the reported microbenchmarks.
+- **Adaptive admission**: decisions use read and write rates, predicted or observed hit ratio, value size, budgets, hysteresis, and cooldown. `Explain(key)` reports the current reason.
 - **Built on mature clients**: go-redis v9 (standalone) and rueidis (standalone and Redis Cluster, `OPTIN` tracking). No custom RESP or tracking protocol code.
-- **Safety first**: caching is suspended and the local cache flushed when tracking cannot be confirmed. There is a hard `max_staleness` bound, deny patterns, and an authoritative `GetFresh`.
-- **Observability**: Prometheus metrics with no key labels, structured logs, and per-key decisions.
+- **Freshness controls**: caching is suspended and the local cache flushed when tracking cannot be confirmed. A maximum entry age, deny patterns, and `GetFresh` provide additional controls; cached reads remain eventually consistent.
+- **Observability**: SDK Prometheus metrics without key labels, structured logs, and per-key decisions.
 - **Optional controller**: fleet-wide hot-key ranking (local vs global), versioned policies with staged rollout and rollback, a REST API, and Prometheus fleet metrics.
 - **Prometheus and Grafana**: the controller exports the whole fleet view (workload, per-service breakdown, global hot keys, cache efficiency, policies, warnings) as Prometheus metrics; ready-made Grafana dashboards are included.
 - **CLI**: `keyshift doctor | inspect | top | stats | instances | policy | bench | simulate`.
@@ -71,10 +71,10 @@ KeyShift makes the decision per instance, from measured workload: it caches a ke
 | Keys tracked by Redis | every key read | cached keys (`OPTIN`) | cached keys only, on both drivers |
 | Write-heavy keys | cached anyway | cached if requested | rejected or put in cooldown |
 | Hot-key detection | – | – | ✅ |
-| Silent network partition | bounded by `MaxStaleness` | bounded by client TTL | health probe suspends caching (~0.2 s in tests) |
+| Silent network partition | bounded by `MaxStaleness` | bounded by client TTL | health probes suspend caching; entry age is also bounded |
 | Fleet view and policies | – | – | ✅ optional controller |
 
-KeyShift does not replace these libraries. It decides *what* they should cache.
+KeyShift builds on these libraries rather than replacing them: it chooses which reads use their cache paths.
 
 ## Installation
 
@@ -184,9 +184,10 @@ for _, it := range items {
 ### Writes made outside KeyShift
 
 ```go
-// INCR, HSET, Lua scripts, EXPIRE...: run them on the underlying client,
-// then tell KeyShift so this instance never serves the old local value.
-client.GoRedis().Incr(ctx, "views:42")
+// Notify KeyShift after a successful write through the underlying client.
+if err := client.GoRedis().Incr(ctx, "views:42").Err(); err != nil {
+    log.Fatal(err)
+}
 client.NotifyWrite("views:42")
 ```
 
@@ -194,11 +195,15 @@ client.NotifyWrite("views:42")
 
 ```go
 reg := prometheus.NewRegistry()
-client, _ := keyshift.New(keyshift.Config{
+client, err := keyshift.New(keyshift.Config{
     ServiceName: "svc",
     Redis:       keyshift.RedisConfig{Addr: "localhost:6379"},
     Metrics:     keyshift.MetricsConfig{Registerer: reg},
 })
+if err != nil {
+    log.Fatal(err)
+}
+defer client.Close()
 ```
 
 ### Optional controller
@@ -234,7 +239,7 @@ The [lab guide](lab/README.md) describes every scenario, how to explore by hand,
 
 ## Configuration
 
-Every setting has a default. Remote policies can tighten local limits, never loosen them.
+`ServiceName` and a Redis address are required by `New`; optional settings have defaults. Remote policies can change admission behavior, but cannot exceed local cache budgets, remove local deny rules, or enable caching when it is locally off.
 
 | Setting | Default | Description |
 | --- | --- | --- |
@@ -244,7 +249,7 @@ Every setting has a default. Remote policies can tighten local limits, never loo
 | `Cache.Mode` | `adaptive` | `adaptive`, `explicit` (pins only), `off` |
 | `Cache.MaxMemoryBytes` / `MaxEntries` | `16 MiB` / `1000` | local cache budget |
 | `Cache.MaxEntryBytes` | `64 KiB` | largest cached value |
-| `Cache.MaxStaleness` | `3s` | hard staleness bound per entry |
+| `Cache.MaxStaleness` | `3s` | maximum entry age before refetch |
 | `Cache.MinReadRate` / `MinHitRatio` / `ExitHitRatio` | `2/s`, `0.6`, `0.3` | admission thresholds with hysteresis |
 | `Tracking.HealthInterval` / `HealthTimeout` | `1s` / `500ms` | tracking health probe |
 | `Telemetry.Endpoint` | empty | controller URL (telemetry is off by default) |
@@ -281,7 +286,7 @@ Measured on one laptop (Apple M1 Pro, Redis 8.6 in Docker), open loop at 20,000 
 
 On a write-heavy workload, conventional caching served 6.9% stale reads; KeyShift did not cache those keys and served none. Conventional caching adapts faster to shifting hot sets and cold starts.
 
-Full results, methodology, unfavorable workloads, and the 5,000-instance simulation are in [docs/benchmarks.md](docs/benchmarks.md). Reproduce them with `./benchmarks/run-all.sh`.
+Full results, methodology, unfavorable workloads, and the 5,000-instance simulation are in [docs/benchmarks.md](docs/benchmarks.md). The reproduction script runs `FLUSHALL` and overwrites benchmark result files; use isolated test servers and a separate output directory.
 
 ## Compatibility
 
@@ -294,7 +299,7 @@ Full results, methodology, unfavorable workloads, and the 5,000-instance simulat
 
 Details, minimum ACL, and the versioning policy are in [docs/compatibility.md](docs/compatibility.md).
 
-> ⚠️ **Consistency:** client-side caching is eventually consistent. Do not cache balances, locks, rate limits, inventory, or authorization data; use deny patterns or `GetFresh`. See [docs/consistency.md](docs/consistency.md).
+> ⚠️ **Consistency:** client-side caching is eventually consistent. Do not cache balances, locks, rate limits, inventory, or authorization data when they require strict freshness; use deny patterns or `GetFresh`. See [docs/consistency.md](docs/consistency.md), including the rueidis concurrent-fill limitation.
 
 ## Documentation
 

@@ -5,7 +5,7 @@
 
 ## Context
 
-Each SDK instance must find its hottest keys among potentially millions of distinct keys, with bounded memory, low and predictable CPU per read, safe concurrent updates from many goroutines, and windowed results that adapt when hot keys shift.
+Each SDK instance needs to identify locally hot keys among potentially millions of distinct keys. The detector must use bounded memory, support concurrent updates, keep per-read overhead low, and adapt as the workload changes.
 
 ## Options considered
 
@@ -29,5 +29,5 @@ Mitigations for the known weaknesses:
 ## Consequences
 
 - Memory is bounded by `MaxTrackingCandidates`; keys beyond it can displace each other, which is acceptable because only the top keys matter.
-- Recall@50 = 1.0 on a 1M-key Zipf(1.1) stream with 500 counters; about 150 ns/op unsampled and 32 ns/op at 10% sampling under 8-way contention; 0 allocations per observation.
+- In the recorded benchmark, recall@50 was 1.0 on a 1M-key Zipf(1.1) stream with 500 counters; updates took about 150 ns/op unsampled and 32 ns/op at 10% sampling under 8-way contention, with 0 allocations per observation. These measurements are workload- and hardware-dependent.
 - Decay makes the decayed count a long-memory estimate, which the admission engine uses as a conservative, smoothed read rate.

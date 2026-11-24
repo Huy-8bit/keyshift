@@ -1,6 +1,6 @@
 # Adaptive admission
 
-The admission engine (`internal/admission`) decides, once per window and per instance, which keys are read through the local cache. It is deterministic and explainable: every decision carries a human-readable reason, available through `client.Explain(key)`.
+The admission engine (`internal/admission`) evaluates keys for each application instance at the end of each detection window. Its decisions control which reads use the local cache. Use `client.Explain(key)` to inspect a key's state and the reason for it.
 
 ## States
 
@@ -20,7 +20,7 @@ The admission engine (`internal/admission`) decides, once per window and per ins
    UNHEALTHY  client tracking not confirmed (caching suspended for all keys)
 ```
 
-`CACHED` from the original design is folded into `ADMITTED`: residency is managed by the client library's cache and can change at any moment (invalidation, staleness refresh, connection loss). An admitted key is read through the cache path; whether a given read is a hit is reported in the hit and fill counters.
+`ADMITTED` means that a key is eligible for the cache path, not that its value is currently resident. The client library manages residency, which can change after invalidation, expiry, eviction, or connection loss. Hit and fill counters describe what happened to individual reads.
 
 ## Signals and formulas
 
@@ -41,7 +41,7 @@ hit_ratio   = 1 - fills / reads           (this window)
 saved_rate  = read_rate × hit_ratio
 ```
 
-Invalidations caused by **other** clients are invisible before a key is cached. KeyShift does not guess: it admits on the predicted ratio and then measures. A key with heavy external writes is demoted within one window of observation and kept out by an exponentially growing cooldown.
+Invalidations caused by **other** clients are invisible before a key is cached. KeyShift initially uses the predicted ratio, then measures fills after admission. If the observed ratio falls below the exit threshold and the window contains at least 20 reads, the key enters cooldown; repeated strikes extend that cooldown.
 
 ## Rules
 
@@ -56,15 +56,15 @@ Invalidations caused by **other** clients are invisible before a key is cached. 
 | pinned keys are admitted without waiting, subject to deny, size, and health rules | – |
 | `explicit` mode admits only pinned keys | – |
 
-The gaps between entry and exit thresholds (rate 2 vs 1, hit ratio 0.6 vs 0.3), the observation windows, smoothing, and cooldown together provide **hysteresis**.
+Different entry and exit thresholds, observation windows, smoothing, and cooldown provide **hysteresis**. Together, they reduce repeated admission and demotion for keys near a threshold.
 
 ## Budgets
 
-Each window, eligible keys are sorted by **pinned first**, then **benefit density** = `saved_rate / (value + key + 160 bytes)`, with a 1.25× bonus for keys that are already admitted (stability). Keys are admitted in that order until `max_entries` or `max_memory_bytes` is reached. The rest stay `CANDIDATE` with the reason "budget exhausted".
+Each window, the engine orders eligible keys with **pinned keys first**, then by benefit density: `saved_rate / (value + key + 160 bytes)`. Existing admissions receive a 1.25× stability bonus. Keys are selected in that order until `max_entries` or `max_memory_bytes` is reached; remaining eligible keys stay candidates with the reason "budget exhausted".
 
 The client library's cache enforces the same limits independently as a hard bound (go-redis `LocalCache` limits or KeyShift's rueidis store), so a burst of fills between windows cannot exceed memory.
 
-Remote policies can lower `max_entries`, `max_memory_bytes`, and `max_entry_bytes` for a service, which gives per-service budgets. Local configuration is the per-pod hard limit.
+Remote policies can lower `max_entries`, `max_memory_bytes`, and `max_entry_bytes` for a service. The local configuration remains the per-instance hard limit for those settings.
 
 ## Policy changes take effect immediately
 
@@ -85,4 +85,4 @@ Fields include read, write, fill, and invalidation rates, observed or predicted 
 - **Few hits, many candidates in `cold`** with reason `read rate … below min_read_rate`: per-instance traffic is too spread out. Lowering `min_read_rate` adds memory and tracking cost for little gain; check `local_share` and `max_local_rate` in the Grafana "KeyShift Fleet" dashboard first.
 - **Many cooldowns**: the keyspace has external writers. This is the engine working as designed; deny the pattern to avoid probation fills entirely.
 - **Budget rejections** (`keyshift_admission_decisions_total{decision="budget_reject"}`): raise the budget, or confirm the extra keys are worth it in the "Most beneficial keys" view.
-- **`max_staleness`** caps the best hit ratio of a key at `1 - 1/(read_rate × max_staleness)`. For a key read 10×/s with 3 s staleness the ceiling is 96.7%. Raising it improves hits but lengthens the worst-case stale window if invalidations are lost.
+- **`max_staleness`** contributes a refresh floor to the predicted hit ratio: approximately `1 - 1/(read_rate × max_staleness)` without writes. For a key read 10×/s with 3 s staleness, this estimate is 96.7%. A longer interval may improve hits but also allows entries to remain cached longer if invalidations are lost.

@@ -1,6 +1,6 @@
 # Release readiness: KeyShift 0.1.0
 
-Date: 2026-11-21. Verified on one developer machine (Apple M1 Pro, macOS, Docker via OrbStack, Go 1.26.11).
+Historical snapshot dated 2026-11-21, verified on one developer machine (Apple M1 Pro, macOS, Docker via OrbStack, Go 1.26.11). The results below describe that assessment, not a current release certification.
 
 **Verdict: ready for an initial open-source release labelled pre-1.0 / experimental.** All release acceptance criteria that can be verified on a single machine are met. It is **not** claimed to be production-proven: there is no real multi-pod deployment, no real 5,000-pod test, and go-redis's client-side caching API is itself experimental. See "Not yet verified" below.
 

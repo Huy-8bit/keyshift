@@ -5,7 +5,7 @@
 
 ## Context
 
-Requirements: use Redis server-assisted invalidation without reimplementing RESP or the tracking protocol; prefer OPTIN-like server cost (track only cached keys); avoid BCAST fan-out; prefer go-redis for adoption; support Redis Cluster.
+The SDK needs Redis server-assisted invalidation without implementing RESP or the tracking protocol itself. The design should limit server tracking to cache-path reads, avoid BCAST fan-out, support go-redis adoption, and provide a Redis Cluster option.
 
 Verified facts (source inspection and integration tests):
 
@@ -31,3 +31,4 @@ Verified facts (source inspection and integration tests):
 - Server tracking cost scales with admitted keys (verified: 1 tracked key for 200 direct + 1 cached reads; 341 vs 32,885 tracked keys in the open-loop Zipf benchmark).
 - go-redis users get caching only on standalone servers; cluster users should use rueidis.
 - KeyShift depends on go-redis's experimental cache API and its namespace layout; both are pinned and covered by integration tests.
+- rueidis drops an overlapping fill after it is stored, leaving a brief concurrent-read window. See the [consistency contract](../consistency.md).

@@ -1,12 +1,12 @@
 # How KeyShift works
 
-This page follows one key through its lifecycle in one application instance.
+This guide follows a key through detection, admission, caching, and invalidation in a single application instance. The optional controller provides fleet visibility; it does not sit on the Redis request path.
 
 ## 1. Every read is observed
 
-`client.Get(ctx, "product:123")` first checks whether the key is currently **admitted**. Most keys are not, so the read goes straight to Redis through the application's normal client. The access is recorded by the **detector**, a bounded streaming top-K structure, together with the size of the returned value.
+When `client.Get(ctx, "product:123")` runs, the SDK first checks whether the key is **admitted**. If it is not, the read goes directly to Redis. The detector records the access and the returned value size in a bounded streaming summary.
 
-Reads served from the local cache are counted too, through a per-key atomic counter, so a cached key does not look cold just because it stopped reaching Redis.
+Admitted-key reads are counted separately and folded into the detector at rotation. A key therefore does not appear cold simply because its reads are served locally.
 
 ## 2. Each window, candidates are scored
 
@@ -19,33 +19,33 @@ Every `Detection.Window` (default 10 s) the admission engine closes the window. 
 | fill rate, invalidation rate | the local cache, for admitted keys |
 | value size | last observed value |
 
-For a key that is not cached yet, the engine **predicts** how often a cached copy would have to be refetched: once per local write, plus once per `max_staleness` interval. The predicted hit ratio is `1 - min(read_rate, write_rate + 1/max_staleness) / read_rate`.
+For an uncached key, the engine estimates fills from the local write rate and the `max_staleness` refresh interval. Its predicted hit ratio is `1 - min(read_rate, write_rate + 1/max_staleness) / read_rate`. External writes are not yet visible to this estimate.
 
 ## 3. Admission with hysteresis
 
-A key becomes a **candidate** when its read rate and predicted hit ratio clear the thresholds (`min_read_rate`, `min_hit_ratio`). It is **admitted** after it qualifies for `min_observation_windows` consecutive windows, if it fits in the entry and memory budget. Keys with the highest benefit per byte win, and keys already admitted get a stability bonus. Pinned keys skip the wait. Denied keys, oversized values, `off` mode, and unhealthy tracking block admission.
+A key becomes a **candidate** when its read rate and predicted hit ratio meet `min_read_rate` and `min_hit_ratio`. After `min_observation_windows` consecutive qualifying windows, it can be admitted if it fits the budget. The engine favors benefit per byte and gives existing admissions a stability bonus. Pins skip the observation wait, while deny rules, oversized values, `off` mode, and unhealthy tracking block admission.
 
-The engine publishes an immutable admitted-key set. From the next request on, reads of admitted keys go through the tracked cache.
+The engine publishes an immutable admitted-key set. Subsequent reads of those keys use the tracked cache path.
 
 ## 4. The first cached read registers tracking
 
-The first read of an admitted key misses the local cache. The client library sends `GET` on a tracking-enabled connection (`CLIENT CACHING YES` + `GET` for rueidis), stores the reply, and Redis remembers that this connection holds the key. Later reads are served from process memory.
+The first cached read normally misses and fetches the value over a tracking-enabled connection. For rueidis, the client sends `CLIENT CACHING YES` before `GET`. Redis records the tracked read, and later reads can be served from process memory.
 
 ## 5. Invalidation
 
-When anyone writes or deletes the key, or it expires, Redis pushes an `invalidate` message to every connection that tracks it. The client library drops the entry, and the next read refetches it. KeyShift counts the invalidation for the key.
+When a tracked key changes, is deleted, or expires, Redis sends an invalidation to the relevant tracking connections. The client library removes the cached entry, and a later read fetches it again. KeyShift records invalidations for admission and telemetry.
 
-Writes made through this KeyShift client also drop the local entry immediately after the write returns, so a subsequent read in the same instance sees its own write.
+Writes made through this KeyShift client also drop the local entry after the Redis command. For writes through another local path, call `NotifyWrite` after the write. Concurrent fills have a driver-specific caveat; see the [consistency contract](consistency.md).
 
 ## 6. Observed feedback
 
-Once a key is cached, the engine stops predicting and uses **observed** numbers: `hit_ratio = 1 - fills / reads`. If invalidations from other services make the hit ratio fall below `exit_hit_ratio`, the key is demoted into **cooldown** (30 s, doubling per strike up to 16×) and its entry is dropped. A key whose read rate falls below half of `min_read_rate` for `exit_windows` windows returns to **cold**.
+Once a key is cached and has reads in the window, the engine uses **observed** numbers: `hit_ratio = 1 - fills / reads`. If the ratio falls below `exit_hit_ratio` with at least 20 reads in the window, the key enters **cooldown** (30 s, doubling per strike up to 16×) and its entry is dropped. A key whose read rate falls below half of `min_read_rate` for `exit_windows` windows returns to **cold**.
 
-This is the core idea: **the cost of caching a key is measured, not assumed**. A key written by another service looks attractive until it is cached; then its invalidation rate is visible and it is removed.
+This feedback matters for external writers: a key can appear attractive before admission, then prove expensive to cache once its fills and invalidations become visible.
 
 ## 7. When tracking is uncertain
 
-The tracking health monitor probes the tracked path every second. If a probe fails or times out, or a cached read hits a transport error, KeyShift:
+The tracking health monitor periodically probes the tracked path (every second by default, with jitter). If a probe fails or times out, or a cached read encounters a transport error, KeyShift:
 
 1. empties the admitted set, so the next read goes to Redis;
 2. flushes the local cache;
@@ -55,9 +55,9 @@ Caching resumes only after consecutive successful probes, starting with an empty
 
 ## 8. Fleet view (optional)
 
-Every ~30 s (jittered), the SDK sends the controller a compact batch: window totals, cache residency, tracking state, and up to 20 candidate keys identified by **HMAC fingerprints**. The controller merges batches into a global ranking. It shows, for each key, the global read rate, the busiest instance's local rate, which services read it, and on how many instances it is cached.
+When telemetry is enabled, the SDK sends a compact batch approximately every 30 seconds, with jitter. It includes window totals, cache residency, tracking state, and up to 20 candidates identified by **HMAC fingerprints** by default. The controller aggregates recent batches to show global and busiest-instance rates, services, and admission across instances.
 
-The controller can push a **policy** (for example "deny `lock:*` for checkout-api", or "explicit mode at 10% rollout"). SDKs validate policies and can only tighten their local limits. If the controller is unreachable for longer than `valid_for_seconds`, they return to their local policy.
+The controller can push a **policy** (for example, deny `lock:*` for checkout-api or roll out explicit mode to 10% of instances). SDKs validate policies and enforce local budget and deny-list limits. Policies can still change admission thresholds and add pins. If the controller is unreachable for longer than `valid_for_seconds`, SDKs revert to their local policy.
 
 ## Worked example
 

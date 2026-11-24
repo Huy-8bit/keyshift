@@ -1,6 +1,6 @@
 # Engineering notes
 
-Background for contributors: facts about the Redis client libraries that shaped KeyShift's design, and defects found while verifying the first release. Each defect is covered by a regression test.
+This page records implementation details that shaped KeyShift and issues found during development. Measurements and dependency behavior refer to the versions and environment described here; revalidate them when upgrading dependencies.
 
 ## Verified facts that shape the design
 

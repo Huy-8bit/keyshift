@@ -1,5 +1,7 @@
 # Compatibility
 
+This page describes the supported integrations and the environments reported as tested. A successful capability check does not replace testing against your own Redis topology, ACLs, network, and workload.
+
 ## Toolchain and dependencies
 
 | Component | Version | Notes |
@@ -14,7 +16,7 @@ KeyShift depends on documented extension points: `redis.Options.ClientSideCache`
 
 ## Tested Redis servers
 
-`make test-integration` and the compatibility matrix run the adapter, SDK, fault, and end-to-end suites with the race detector against:
+The release verification reported the following results. `make test-integration` uses the Redis versions configured in the test Compose file; additional versions require separate runs. `make test-compat` targets standalone Valkey.
 
 | Server | Result |
 |---|---|
@@ -43,7 +45,7 @@ Not tested: Redis Sentinel (go-redis `FailoverClient` should behave like a stand
 | ACL denies `CLIENT TRACKING` / `CLIENT SETNAME` | ❌ | ✅ | `unsupported` |
 | `Cache.Mode = Off` | ❌ | ✅ | `disabled` |
 
-In every unsupported case reads go directly to Redis with normal semantics, and `Stats().Capabilities.Reason` explains why.
+When a client is successfully created in an unsupported caching configuration, reads use the direct Redis path and `Stats().Capabilities.Reason` explains why caching is unavailable. Connection or initialization errors can still prevent client creation.
 
 ## Minimum ACL
 

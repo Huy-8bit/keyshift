@@ -1,5 +1,7 @@
 # Observability
 
+Use SDK metrics to understand individual applications and controller metrics to inspect the fleet. Per-key decisions are available through `Explain`; they are not exported as SDK metric labels.
+
 ## SDK metrics
 
 Register the collector with `Config.Metrics.Registerer`. Every metric has a constant `service` label. **No metric has a key label.** Counters are read at scrape time; the request path pays only for the latency histogram, and only when a registerer is configured and `DisableLatencyHistograms` is false.
@@ -47,7 +49,7 @@ count(keyshift_tracking_healthy == 0) by (service)
 sum by (service) (rate(keyshift_admission_decisions_total{decision=~"admit|demote"}[5m]))
 ```
 
-Suggested alerts: `keyshift_tracking_healthy == 0` for 5 minutes (caching suspended: Redis load rises), `rate(keyshift_policy_rejected_total[15m]) > 0`, and a rising `keyshift_telemetry_dropped_total`.
+Suggested alerts include `keyshift_tracking_healthy == 0` for 5 minutes, `rate(keyshift_policy_rejected_total[15m]) > 0`, and a rising `keyshift_telemetry_dropped_total`. Exclude instances where caching is intentionally disabled or unsupported if those states are expected.
 
 ## Programmatic access
 

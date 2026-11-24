@@ -1,13 +1,13 @@
 # Benchmarks
 
-`run-all.sh` reproduces every number in [docs/benchmarks.md](../docs/benchmarks.md):
+`run-all.sh` runs the scenario benchmarks and logical simulations described in [docs/benchmarks.md](../docs/benchmarks.md). Results vary by environment; selected historical rows on that page were measured separately.
 
 ```bash
 make test-infra-up build
-./benchmarks/run-all.sh          # ~1 hour; writes benchmarks/results/
+OUT=/tmp/keyshift-benchmark-results ./benchmarks/run-all.sh  # ~1 hour
 ```
 
-**It runs `FLUSHALL` on the target Redis servers.** Only use the test containers.
+**The script runs `FLUSHALL` on its target Redis servers and restarts the designated restart container.** Only use isolated test infrastructure. Without `OUT`, it writes to `benchmarks/results/` and overwrites the checked-in result files.
 
 | File | Content |
 |---|---|

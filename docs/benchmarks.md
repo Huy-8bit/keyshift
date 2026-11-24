@@ -1,6 +1,6 @@
 # Benchmarks
 
-All numbers on this page were produced by `benchmarks/run-all.sh` on the environment described below and are stored unedited in `benchmarks/results/`. They come from **one developer laptop**; reproduce them on your own hardware before drawing conclusions. Relative comparisons between modes are more meaningful than absolute throughput.
+These results describe runs on **one developer laptop**, using the environment and methodology below. The scenario and simulation outputs are stored in `benchmarks/results/`; selected rows were re-measured as noted. Re-run the workloads on your own infrastructure before drawing conclusions. Relative comparisons are generally more useful than absolute throughput.
 
 ## What is compared
 
@@ -55,7 +55,7 @@ Measured per run: throughput; p50/p99 latency; local hit ratio; Redis `GET` call
 | Go / go-redis / rueidis | go1.26.11 / 9.23.0 / v1.0.80 |
 | SDK settings | window 1 s (default run: 10 s), max_staleness 3 s, 1,000 entries / 16 MiB, drain interval 1 ms |
 
-Client and Redis share one machine, so a "network round trip" here is a loopback hop through a VM (≈ 0.2–0.3 ms), much cheaper than a real network. Local caching saves more on real networks.
+Client and Redis share one machine, so a "network round trip" here is a loopback hop through a VM (≈ 0.2–0.3 ms). Results on a real network depend on latency, workload, and deployment.
 
 **Re-measured rows:** the `keyshift-rueidis` open-loop rows and the `keyshift` cluster row were re-measured after the rueidis driver switched to `ToStaticTTL` (marked in the notes); all other rows come from the full suite run on the same day.
 
@@ -69,7 +69,7 @@ Read with the caveats above:
 2. **Server tracking state.** Conventional CSC made Redis track every key the instance read: up to 91,191 tracked keys for one instance (32,885 on Zipf; fewer on the small-keyspace large-value and write-heavy runs). KeyShift tracked 0–547: on Zipf, about 100× fewer. At 5,000 instances this is the difference between exceeding `tracking-table-max-keys` and staying far below it ([scaling.md](scaling.md)).
 3. **Invalidation traffic.** Conventional CSC received 5,739 invalidations in the open-loop Zipf run vs 92 for KeyShift (go-redis) and 39 (rueidis). In the closed-loop Zipf run the numbers were 104,943 vs 342.
 4. **Stale reads.** On the write-heavy workload conventional CSC served **6.9%** stale reads in the open-loop run (4.4% closed loop; up to 8.7 ms old). KeyShift refused to cache those keys and served none. Across all scenarios KeyShift served stale reads only in `local-hot` (6 of ~1.6M) and `startup-surge` (2), all caused by writes from other instances and at most 0.9 ms old.
-5. **Unfavorable workloads cost nothing.** On uniform and oversized-value workloads KeyShift admitted nothing, so its Redis load, allocations, and client CPU matched the uncached baseline. Conventional CSC tracked 91–95k keys and allocated 1.6–4.5× more per operation for a 0–1% hit ratio on the uniform workload.
+5. **Unfavorable workloads still have overhead.** On uniform and oversized-value workloads KeyShift admitted nothing; Redis load was similar to the uncached baseline, while detector and client overhead remained. Conventional CSC tracked 91–95k keys and allocated 1.6–4.5× more per operation for a 0–1% hit ratio on the uniform workload.
 6. **Where conventional CSC is better.** It adapts instantly: with a shifting hot set (`hot-shift`) it reached 71% hits vs 50% for KeyShift, and during a cold start (`startup-surge`) 66% vs 46%, because KeyShift needs `min_observation_windows` windows of evidence before admitting a key. With the production default 10 s window, the Zipf hit ratio after warmup was 59.8% (vs 65.7% with a 1 s window).
 7. **Faults.** With connections killed mid-run and with Redis restarted mid-run, KeyShift served **no stale reads**; conventional CSC served 29 stale reads in the restart run. With the controller unreachable, KeyShift's results matched the normal run.
 8. **Overhead.** On uncached reads KeyShift adds about 15–30 allocated bytes and 1–2 µs of client CPU per operation compared with plain go-redis (closed-loop uniform: 399 vs 384 B/op, 41.0 vs 39.5 µs CPU per op; the CPU figure includes the benchmark harness). The detector and admission state take about 0.8 MiB per instance at default limits (see [scaling.md](scaling.md)).
@@ -414,9 +414,11 @@ KEYSHIFT_TEST_REDIS_ADDR=localhost:16379 go test -tags integration -run '^$' -be
 
 ## Reproducing
 
+The script runs `FLUSHALL` on its Redis targets and restarts the dedicated restart container. Use only isolated test infrastructure. Its default output directory contains tracked results, so set `OUT` to a separate directory to avoid overwriting them:
+
 ```bash
 make test-infra-up build
-./benchmarks/run-all.sh
+OUT=/tmp/keyshift-benchmark-results ./benchmarks/run-all.sh
 ```
 
-Raw JSON and the generated Markdown are in `benchmarks/results/`. The scenario harness is `internal/bench`; the simulation is `internal/simulate`.
+The script writes new JSON and Markdown results to `OUT`. It repeats the configured workloads, not necessarily every later re-measurement or the exact historical numbers above. The scenario harness is `internal/bench`; the simulation is `internal/simulate`.

@@ -2,7 +2,7 @@
 
 ## SDK (`keyshift.Config`)
 
-Zero values select the defaults below. `New` validates the configuration and returns an error describing every problem.
+Optional zero-valued fields select the defaults below. `ServiceName` is required, and `New` also requires a Redis address. Constructors validate the configuration and return errors for invalid settings.
 
 ### Identity
 
@@ -111,12 +111,14 @@ Policies are JSON documents distributed by the controller or applied with `clien
 
 Merge rules (`policy.Resolve`):
 
-- Local configuration is the hard limit. Remote `budget` values and `max_entry_bytes` can only lower local values.
+- Local cache budgets and maximum entry size are hard limits. Remote `budget` values and `max_entry_bytes` can only lower them.
 - A remote policy cannot enable caching when the local `Mode` is `off`.
 - Pin, deny, and deny-fingerprint lists are the union of local and remote lists.
+- Remote policies can change admission thresholds and add pin patterns, including when the local mode is `explicit`. Treat policy administration as a privileged operation.
 - Unknown fields, invalid modes, broken hysteresis (`exit_hit_ratio > min_hit_ratio`), oversized documents (> 256 KiB), and malformed fingerprints are rejected. The SDK keeps its last valid policy.
 - A remote policy expires after `valid_for_seconds` (default 600) without controller contact, and the SDK reverts to its local policy.
 - When an administrator deletes the policy that applies to a service, the controller tells SDKs on their next upload that no policy applies, and they revert to their local policy immediately.
+- A policy installed with `ApplyPolicy` takes precedence over controller policies until `ClearPolicy` is called. Clearing it restores the local policy; a controller policy may be applied again on the next contact.
 
 Validate a file locally:
 

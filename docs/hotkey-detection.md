@@ -1,6 +1,6 @@
 # Hot-key detection
 
-Each SDK instance finds its own hot keys with a bounded streaming detector (`internal/detector`). Algorithm selection is recorded in [ADR 0001](adr/0001-hotkey-detection-algorithm.md).
+Each SDK instance uses a bounded streaming detector (`internal/detector`) to identify keys that are hot locally. [ADR 0001](adr/0001-hotkey-detection-algorithm.md) records the algorithm choice.
 
 ## Algorithm
 
@@ -9,11 +9,11 @@ Each SDK instance finds its own hot keys with a bounded streaming detector (`int
 - The detector holds `MaxTrackingCandidates` counters (default 1000), split across up to 64 shards by key hash. Each shard is a min-heap plus an index map, protected by its own mutex.
 - An observation of a tracked key increments its counter. An untracked key replaces the minimum counter of its shard and inherits that count as its error bound (Space-Saving). Memory is O(capacity) regardless of key cardinality.
 - At each window rotation every counter is halved in place, and counters that reach zero are removed. Rotation does not allocate proportionally to the key space.
-- Each counter also records the **window count** (a lower bound for the true count in the window) and the last observed value size.
+- Each counter also records the **window count** of weighted observations since the key entered the summary, and the last observed value size.
 
-Guarantees (tested in `TestTopKRecallZipf` and `FuzzDetector`): for every reported key, `score - err ≤ true count ≤ score`, and the window count never exceeds the true count.
+The counters describe recorded, weighted observations. Without sampling, the per-window count is a lower bound for observations in that window; the Space-Saving score and error describe the decayed summary. Sampling trades accuracy for lower overhead, so weighted estimates are not exact bounds on the actual number of requests.
 
-## Four quantities that are never mixed
+## Distinct quantities
 
 | Quantity | Where it comes from |
 |---|---|
