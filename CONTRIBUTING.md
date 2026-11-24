@@ -10,7 +10,8 @@ Requirements: Go 1.26+, Docker (integration tests and lab).
 make help              # all targets
 make lint              # gofmt check, go vet, golangci-lint
 make test-race         # unit tests with the race detector
-make test-integration  # starts Redis 8.6, 7.4, and Cluster in Docker; runs integration and fault tests
+make test-integration  # starts Redis 8.6, 7.4, Cluster, and Valkey in Docker; runs integration and fault tests
+make test-compat       # SDK and adapter integration suites against Valkey
 make test-fuzz         # fuzz targets (FUZZTIME=15s each)
 make bench             # micro-benchmarks
 make build             # binaries in bin/

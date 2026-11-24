@@ -1,12 +1,14 @@
 # Observability
 
+Use SDK metrics to understand individual applications and controller metrics to inspect the fleet. Per-key decisions are available through `Explain`; they are not exported as SDK metric labels.
+
 ## SDK metrics
 
-Register the collector with `Config.Metrics.Registerer`. Every metric has a constant `service` label. **No metric has a key label.** Counters are read at scrape time; the request path pays only for the optional latency histogram.
+Register the collector with `Config.Metrics.Registerer`. Every metric has a constant `service` label. **No metric has a key label.** Counters are read at scrape time; the request path pays only for the latency histogram, and only when a registerer is configured and `DisableLatencyHistograms` is false.
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `keyshift_requests_total` | counter | `op` (get, set, del), `path` (cache, direct, bypass) | logical requests |
+| `keyshift_requests_total` | counter | `op` (get, set, del, notify_write), `path` (cache, direct, bypass, local) | logical requests; `MGet` counts one `get` per key; `notify_write` counts keys passed to `NotifyWrite` (no Redis command) |
 | `keyshift_cache_hits_total` | counter | | reads served locally (Redis reads avoided) |
 | `keyshift_cache_misses_total` | counter | | cache-path reads fetched from Redis |
 | `keyshift_cache_bypasses_total` | counter | | `GetFresh` calls |
@@ -28,7 +30,7 @@ Register the collector with `Config.Metrics.Registerer`. Every metric has a cons
 | `keyshift_detector_observations_total` | counter | | reads observed by the detector |
 | `keyshift_detector_coverage_ratio` | gauge | | share of recorded reads in the last window's top keys |
 | `keyshift_errors_total` | counter | | Redis errors returned to the application |
-| `keyshift_read_duration_seconds` | histogram | `path` (cache, direct) | `Get` latency |
+| `keyshift_read_duration_seconds` | histogram | `path` (cache, direct) | latency of `Get`, `GetBytes`, `GetFresh` (direct), and each `MGet` pipeline (direct, one sample per call) |
 | `keyshift_window_rotation_duration_seconds` | histogram | | admission evaluation time |
 
 Useful queries:
@@ -47,7 +49,7 @@ count(keyshift_tracking_healthy == 0) by (service)
 sum by (service) (rate(keyshift_admission_decisions_total{decision=~"admit|demote"}[5m]))
 ```
 
-Suggested alerts: `keyshift_tracking_healthy == 0` for 5 minutes (caching suspended: Redis load rises), `rate(keyshift_policy_rejected_total[15m]) > 0`, and a rising `keyshift_telemetry_dropped_total`.
+Suggested alerts include `keyshift_tracking_healthy == 0` for 5 minutes, `rate(keyshift_policy_rejected_total[15m]) > 0`, and a rising `keyshift_telemetry_dropped_total`. Exclude instances where caching is intentionally disabled or unsupported if those states are expected.
 
 ## Programmatic access
 

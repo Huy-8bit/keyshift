@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/Huy-8bit/keyshift/internal/policy"
+	"github.com/Huy-8bit/keyshift/internal/rediscompat"
 )
 
 // CacheMode selects how keys become eligible for local caching.
@@ -268,6 +269,13 @@ func (c *Config) localPolicy() *policy.Policy {
 		Budget:       policy.Budget{MaxEntries: c.Cache.MaxEntries, MaxMemoryBytes: c.Cache.MaxMemoryBytes},
 		PinPatterns:  c.Cache.PinPatterns,
 		DenyPatterns: c.Cache.DenyPatterns,
+	}
+}
+
+// cacheLimits are the hard bounds of the client library's local cache.
+func (c *Config) cacheLimits() rediscompat.CacheLimits {
+	return rediscompat.CacheLimits{
+		MaxEntries: c.Cache.MaxEntries, MaxMemoryBytes: c.Cache.MaxMemoryBytes, MaxStaleness: c.Cache.MaxStaleness,
 	}
 }
 

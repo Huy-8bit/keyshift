@@ -42,7 +42,7 @@ func TestRueidisMissHitInvalidate(t *testing.T) {
 	k := testutil.Key(t, "k")
 	ext.Set(ctx, k, "v1", 0)
 	for range 3 {
-		if v, err := r.GetCached(ctx, k); err != nil || string(v) != "v1" {
+		if v, err := r.GetCached(ctx, k); err != nil || v != "v1" {
 			t.Fatalf("got %q %v", v, err)
 		}
 	}
@@ -52,7 +52,7 @@ func TestRueidisMissHitInvalidate(t *testing.T) {
 	ext.Set(ctx, k, "v2", 0)
 	testutil.Eventually(t, 2*time.Second, func() bool {
 		v, _ := r.GetCached(ctx, k)
-		return string(v) == "v2"
+		return v == "v2"
 	}, "external SET not invalidated")
 	if rec.get(rec.invals, k) == 0 {
 		t.Fatal("invalidation hook not called with the application key")
@@ -121,7 +121,7 @@ func TestRueidisLocalWriteThenRead(t *testing.T) {
 		if err := r.Set(ctx, k, []byte(want), 0); err != nil {
 			t.Fatal(err)
 		}
-		if v, err := r.GetCached(ctx, k); err != nil || string(v) != want {
+		if v, err := r.GetCached(ctx, k); err != nil || v != want {
 			t.Fatalf("iteration %d: got %q want %q (%v)", i, v, want, err)
 		}
 	}
@@ -142,7 +142,7 @@ func TestRueidisConnectionLoss(t *testing.T) {
 	start := time.Now()
 	var staleFor time.Duration
 	for time.Since(start) < 300*time.Millisecond {
-		if v, err := r.GetCached(ctx, k); err == nil && string(v) == "old" {
+		if v, err := r.GetCached(ctx, k); err == nil && v == "old" {
 			staleFor = time.Since(start)
 		}
 		time.Sleep(200 * time.Microsecond)
@@ -167,13 +167,13 @@ func TestRueidisClusterCaching(t *testing.T) {
 			t.Fatal(err)
 		}
 		r.GetCached(ctx, k)
-		if v, err := r.GetCached(ctx, k); err != nil || string(v) != "v1" {
+		if v, err := r.GetCached(ctx, k); err != nil || v != "v1" {
 			t.Fatalf("got %q %v", v, err)
 		}
 		ext.Set(ctx, k, "v2", 0)
 		testutil.Eventually(t, 2*time.Second, func() bool {
 			v, _ := r.GetCached(ctx, k)
-			return string(v) == "v2"
+			return v == "v2"
 		}, "cluster invalidation for %s", k)
 	}
 	if st := r.CacheStats(); st.Hits < 30 {

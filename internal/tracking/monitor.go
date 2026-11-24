@@ -124,8 +124,11 @@ func (m *Monitor) CheckNow(ctx context.Context) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		defer m.inflight.Store(false)
-		done <- m.cfg.Probe(ctx)
+		err := m.cfg.Probe(ctx)
+		// Clear the flag before publishing the result: once CheckNow has
+		// received it, the next CheckNow must be able to start a probe.
+		m.inflight.Store(false)
+		done <- err
 	}()
 	select {
 	case err := <-done:

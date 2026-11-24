@@ -1,6 +1,6 @@
 # Scaling
 
-The target scenario: **100 services × 50 pods = 5,000 SDK instances** sharing Redis Standalone or Cluster, with rolling deployments, autoscaling, restarts, and failovers.
+The design target is **100 services × 50 pods = 5,000 SDK instances** sharing Redis Standalone or Cluster. The published scale measurements are logical control-plane simulations, not evidence from a deployment of 5,000 application pods.
 
 ## What scales with what
 
@@ -32,7 +32,7 @@ Logical simulation results ([benchmarks.md](benchmarks.md#large-scale-logical-si
 | average upload size (gzip) | 1.3 KiB | 2.4 KiB |
 | process heap (controller + simulator) | 69–73 MiB | 146 MiB |
 
-At 167 uploads/s × 1.3 KiB the controller receives about 220 KiB/s of telemetry. The default limits (`--max-instances 20000`, `--max-candidates 50`, `--max-global-keys 5000`, `--ingest-rate 2000/s`) are sized for the target with headroom. The aggregation step is O(instances × candidates) every `--aggregate-interval`.
+At 167 uploads/s × 1.3 KiB the controller receives about 220 KiB/s of telemetry in this model. The default limits (`--max-instances 20000`, `--max-candidates 50`, `--max-global-keys 5000`, `--ingest-rate 2000/s`) leave numerical headroom, but production capacity still needs distributed verification. The aggregation step is O(instances × candidates) every `--aggregate-interval`.
 
 Operational recommendations at 5,000 instances:
 
@@ -49,6 +49,6 @@ Operational recommendations at 5,000 instances:
 
 ## Redis-side planning
 
-- Tracking table size ≈ Σ over instances of admitted keys; bounded by `MaxEntries` per instance (default 1,000) → at most 5,000,000 key-client pairs at 5,000 instances. Typical admitted counts are much lower (100–300 per instance in the benchmarks). Set `tracking-table-max-keys` accordingly.
+- Use the sum of admitted keys across instances as a starting point for estimating tracking state, not as a strict server-side bound. Redis tracking is connection-specific and previously read keys can remain tracked until invalidation. Monitor `tracking_total_keys` and `tracking_total_items` under your workload, and size `tracking-table-max-keys` accordingly.
 - Each go-redis instance opens an additional tracked connection pool, so the connection count per Redis node grows by `instances × TrackedPoolSize`. Set `TrackedPoolSize` small (for example 4–8) at very high instance counts; the rueidis driver multiplexes over a few connections per node.
 - On Redis Cluster, use the rueidis driver; tracking and invalidation are per node.

@@ -1,6 +1,6 @@
 # KeyShift Lab
 
-A self-contained, reproducible environment to **see KeyShift work end to end** on your machine: hot-key detection, adaptive caching, invalidation, policies, fault tolerance, and observability. It runs entirely in Docker.
+The lab runs KeyShift, Redis, Prometheus, and Grafana locally with Docker Compose. Use it to explore hot-key detection, adaptive caching, invalidation, policies, fault handling, and observability without deploying a production stack.
 
 ```text
                      ┌──────────────┐   HTTP    ┌───────────────────┐
@@ -46,9 +46,9 @@ From the repository root:
 ./lab/run.sh            # or: make lab
 ```
 
-The script builds the images, starts the lab, runs every scenario below with assertions, and writes a report with all evidence to `lab/results/<timestamp>/REPORT.md`. The first run takes about 10 minutes, mostly image builds.
+The script builds the images, starts the lab, runs the scenarios below with assertions, and writes a report to `lab/results/<timestamp>/REPORT.md`. Allow roughly 10 minutes for the first run; image builds and environment speed can change that estimate.
 
-Options: `--no-build` reuses images; `--down` stops the lab and removes its volumes at the end.
+Options: `--no-build` reuses images; `--down` stops the lab and removes its volumes at the end. Use this stack only for local testing: its credentials are examples, and the scenarios restart Redis and kill client connections.
 
 ## Scenarios
 
@@ -138,6 +138,8 @@ docker compose -f lab/docker-compose.yml exec redis redis-cli CLIENT KILL TYPE n
 ```bash
 docker compose -f lab/docker-compose.yml --profile tools down -v     # or: make docker-down
 ```
+
+This removes the lab's Compose volumes, including persisted controller policies.
 
 ## Files
 

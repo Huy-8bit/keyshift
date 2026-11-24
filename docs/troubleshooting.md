@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Start with:
+Start by checking Redis and, if configured, the controller:
 
 ```bash
 keyshift doctor --redis <addr> [--cluster] [--controller <url>]
@@ -40,10 +40,12 @@ The keyspace has writers you cannot see locally. Admission probes them, measures
 
 ## Stale reads
 
-1. Confirm the key is meant to be cached. Data that needs authoritative reads must be denied or read with `GetFresh`.
+1. Confirm the key is meant to be cached. Data that needs authoritative reads must be denied or read with `GetFresh`; caching is eventually consistent even on a healthy connection.
 2. Check `keyshift_tracking_errors_total` and transitions in `Stats().Tracking`.
-3. Writes through another client library or another Redis endpoint (a different DB, or a replica you read from) are only visible through server invalidation of the server you read from.
+3. After successful writes through another local client or script, call `NotifyWrite` for affected keys. Writes by other instances rely on server invalidation. Check that reads and writes target the intended Redis database and topology.
 4. Lower `Tracking.HealthInterval` / `HealthTimeout` to shorten the partition window, and `Cache.MaxStaleness` to lower the worst case.
+
+See [consistency](consistency.md) for the concurrent-fill limitation of the rueidis driver and the distinction between entry age and data freshness.
 
 Please report reproducible stale reads; see the bug template.
 

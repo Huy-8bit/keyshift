@@ -1,5 +1,7 @@
 # Quickstart
 
+This guide starts a local Redis server and introduces the SDK. Cached reads are eventually consistent; read the [consistency contract](consistency.md) before choosing which data to cache.
+
 ## 1. Run Redis
 
 ```bash
@@ -40,11 +42,14 @@ func main() {
 	defer client.Close()
 
 	ctx := context.Background()
-	_ = client.SetString(ctx, "product:1", "coffee", 0)
+	if err := client.SetString(ctx, "product:1", "coffee", 0); err != nil {
+		log.Fatal(err)
+	}
 	v, err := client.Get(ctx, "product:1")
 	switch {
 	case errors.Is(err, keyshift.Nil):
-		// key does not exist
+		log.Println("key does not exist")
+		return
 	case err != nil:
 		log.Fatal(err) // ordinary Redis error semantics
 	}
@@ -70,6 +75,8 @@ ks, err := keyshift.NewFromGoRedis(rdb, keyshift.Config{ServiceName: "product-se
 
 `NewFromGoRedis` never reconfigures `rdb`. It creates a small dedicated client for cached reads from `rdb`'s options. `ks.Close()` does not close `rdb`. See `examples/standalone` for an HTTP service with Prometheus metrics and dependency injection.
 
+Reads that fetch several keys can use `ks.MGet(ctx, keys...)`: admitted keys use the cache path and the rest use a pipeline. Commands KeyShift does not wrap (`INCR`, `HSET`, Lua scripts, …) can still run on `rdb`. After a successful write affecting a key read through KeyShift, call `ks.NotifyWrite(key)` to drop its local entry. For concurrent-fill limitations, see [consistency](consistency.md).
+
 For **Redis Cluster** caching use the rueidis driver:
 
 ```go
@@ -80,7 +87,15 @@ ks, err := keyshift.NewFromRueidis(rueidis.ClientOption{InitAddress: seeds}, cfg
 
 ```go
 reg := prometheus.NewRegistry()
-ks, _ := keyshift.New(keyshift.Config{ServiceName: "svc", Metrics: keyshift.MetricsConfig{Registerer: reg}, /* ... */})
+ks, err := keyshift.New(keyshift.Config{
+    ServiceName: "svc",
+    Redis: keyshift.RedisConfig{Addr: "localhost:6379"},
+    Metrics: keyshift.MetricsConfig{Registerer: reg},
+})
+if err != nil {
+    log.Fatal(err)
+}
+defer ks.Close()
 http.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 ```
 
@@ -90,13 +105,16 @@ http.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 export KEYSHIFT_INGEST_TOKENS=$(openssl rand -hex 32)
 export KEYSHIFT_VIEWER_TOKENS=$(openssl rand -hex 32)
 export KEYSHIFT_ADMIN_TOKENS=$(openssl rand -hex 32)
+export KEYSHIFT_INGEST_TOKEN=$KEYSHIFT_INGEST_TOKENS
+export KEYSHIFT_FINGERPRINT_SECRET=$(openssl rand -hex 32)
 make build
 bin/keyshift-controller --addr :8080 --data-dir ./data
 ```
 
-Point SDKs at it:
+The controller runs in the foreground. In another terminal, pass the same ingest token and fingerprint secret to each SDK instance; keep the secrets in your deployment's secret store. Point SDKs at the controller:
 
 ```go
+// Include this in keyshift.Config in each application instance.
 Telemetry: keyshift.TelemetryConfig{
     Endpoint:          "http://keyshift-controller:8080",
     Token:             os.Getenv("KEYSHIFT_INGEST_TOKEN"),
@@ -104,7 +122,7 @@ Telemetry: keyshift.TelemetryConfig{
 },
 ```
 
-Scrape the controller's `/metrics` with Prometheus and import the dashboards from `lab/grafana/dashboards/` into Grafana, or use the CLI:
+Scrape the controller's `/metrics` with Prometheus and import the dashboards from `lab/grafana/dashboards/` into Grafana, or use the CLI. Set `KEYSHIFT_VIEWER_TOKENS` to the controller's viewer token in the CLI terminal before running:
 
 ```bash
 export KEYSHIFT_CONTROLLER=http://localhost:8080 KEYSHIFT_TOKEN=$KEYSHIFT_VIEWER_TOKENS
@@ -116,5 +134,6 @@ keyshift top --watch 5s
 
 ```bash
 make docker-up    # Redis, controller, simulated pods, product-service, Prometheus, Grafana
-make docker-down
 ```
+
+`make docker-down` stops the lab and removes its volumes.

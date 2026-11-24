@@ -1,5 +1,7 @@
 # Security model
 
+KeyShift keeps cached values in application memory and optionally sends workload telemetry to a controller. This page outlines those boundaries and the controls available to operators; it is not a substitute for assessing your deployment.
+
 ## Assets
 
 | Asset | Where |
@@ -20,7 +22,7 @@
                                              └── /metrics ──► [Prometheus] ──► [Grafana]
 ```
 
-- The SDK trusts Redis and the application. It treats the controller as a **constrained** authority: policies are validated, size-limited, and can only tighten local limits or add denies. A compromised controller can disable or reduce caching for a service (availability and performance impact, shifting load back to Redis), but it cannot make an SDK cache a key that local configuration denies, exceed local memory limits, or read Redis data.
+- The SDK trusts Redis and the application. Controller policies are validated and size-limited; they cannot remove local denies, exceed local cache budgets, or enable caching when it is locally off. A controller administrator can nevertheless change admission thresholds, add pins, and change modes, potentially increasing caching or Redis load. The controller does not have direct access to Redis values.
 - The controller does not trust SDKs. Every upload is authenticated, rate limited (global token bucket, per-instance minimum interval), size limited (1 MiB compressed, 4 MiB decompressed, which protects against zip bombs), schema-validated (lengths, enums, fingerprint format, rate ranges, timestamps), and bounded in effect (instance, service, candidate, and global-key limits).
 - Nothing in the control plane can execute Redis commands: the controller has no Redis connection at all.
 - `/metrics` is unauthenticated by default and contains workload metadata (service names, rates, and the names of hot keys that SDKs explicitly allow via `DisplayKeyPatterns`; other keys appear as truncated fingerprints). Restrict network access to it, or use `--metrics-public=false`.
@@ -31,7 +33,7 @@
 |---|---|
 | Key names leak through telemetry | Only HMAC-SHA256 fingerprints (128-bit) are sent. Raw names only for keys matching explicit `DisplayKeyPatterns`. No values are ever sent. |
 | Fingerprints reversed by guessing | Keyed HMAC: guessing requires the secret. Protect `FingerprintSecret` like a credential. Holders of the secret can confirm guessed key names. |
-| Key names in metrics | No key labels exist (tested by `TestMetricsCollectorHasNoKeyLabels`); label sets are fixed. |
+| Key names in metrics | SDK metrics have no key labels. Controller fleet metrics may expose names explicitly allowed by `DisplayKeyPatterns`; other keys appear as truncated fingerprints. |
 | Credentials in logs | Passwords and tokens are never logged; tokens are compared as SHA-256 digests in constant time. |
 | Forged or flooded telemetry | Ingest token; global and per-instance rate limits; size and schema limits; bounded registry (`--max-instances`, `--max-services`); idempotent sequence numbers. |
 | Malicious policy | Admin token required; schema validation on controller and SDK; local hard limits; per-SDK `DisableRemotePolicy`; history and rollback. |

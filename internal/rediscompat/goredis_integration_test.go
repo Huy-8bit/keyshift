@@ -67,7 +67,7 @@ func TestGoRedisMissThenHitAndKeyNamespace(t *testing.T) {
 	}
 	for range 5 {
 		v, err := g.GetCached(ctx, k)
-		if err != nil || string(v) != "v1" {
+		if err != nil || v != "v1" {
 			t.Fatalf("got %q %v", v, err)
 		}
 	}
@@ -106,13 +106,13 @@ func TestGoRedisExternalWriteAndDeleteInvalidate(t *testing.T) {
 	ctx := context.Background()
 	k := testutil.Key(t, "k")
 	ext.Set(ctx, k, "v1", 0)
-	if v, _ := g.GetCached(ctx, k); string(v) != "v1" {
+	if v, _ := g.GetCached(ctx, k); v != "v1" {
 		t.Fatalf("got %q", v)
 	}
 	ext.Set(ctx, k, "v2", 0)
 	testutil.Eventually(t, 2*time.Second, func() bool {
 		v, _ := g.GetCached(ctx, k)
-		return string(v) == "v2"
+		return v == "v2"
 	}, "external SET not invalidated")
 	if rec.get(rec.invals, k) == 0 {
 		t.Fatal("invalidation hook not called")
@@ -131,7 +131,7 @@ func TestGoRedisExpiration(t *testing.T) {
 	ctx := context.Background()
 	k := testutil.Key(t, "k")
 	ext.Set(ctx, k, "v", 300*time.Millisecond)
-	if v, _ := g.GetCached(ctx, k); string(v) != "v" {
+	if v, _ := g.GetCached(ctx, k); v != "v" {
 		t.Fatal("initial read failed")
 	}
 	// Redis sends an invalidation when the key is expired (active expiry
@@ -153,7 +153,7 @@ func TestGoRedisLocalWriteThenRead(t *testing.T) {
 			t.Fatal(err)
 		}
 		v, err := g.GetCached(ctx, k)
-		if err != nil || string(v) != want {
+		if err != nil || v != want {
 			t.Fatalf("iteration %d: read-your-write violated: got %q want %q (%v)", i, v, want, err)
 		}
 	}
@@ -203,7 +203,7 @@ func TestGoRedisConnectionLossEvictsEntries(t *testing.T) {
 	ctx := context.Background()
 	k := testutil.Key(t, "k")
 	ext.Set(ctx, k, "old", 0)
-	if v, _ := g.GetCached(ctx, k); string(v) != "old" {
+	if v, _ := g.GetCached(ctx, k); v != "old" {
 		t.Fatal("prime failed")
 	}
 	if n := testutil.KillClientsByName(t, ext, "keyshift-tracked"); n == 0 {
@@ -219,7 +219,7 @@ func TestGoRedisConnectionLossEvictsEntries(t *testing.T) {
 	var staleFor time.Duration
 	for time.Since(start) < 500*time.Millisecond {
 		v, err := g.GetCached(ctx, k)
-		if err == nil && string(v) == "old" {
+		if err == nil && v == "old" {
 			staleFor = time.Since(start)
 		}
 		time.Sleep(200 * time.Microsecond)
@@ -271,7 +271,7 @@ func TestGoRedisConcurrentReadersAndWriters(t *testing.T) {
 					t.Error(err)
 					return
 				}
-				n, _ := strconv.Atoi(string(v))
+				n, _ := strconv.Atoi(v)
 				if lag := floor - n; lag > 0 {
 					mu.Lock()
 					maxLag = max(maxLag, lag)
@@ -294,7 +294,7 @@ func TestGoRedisConcurrentReadersAndWriters(t *testing.T) {
 	final := strconv.Itoa(latest.get())
 	testutil.Eventually(t, 2*time.Second, func() bool {
 		v, _ := g.GetCached(ctx, k)
-		return string(v) == final
+		return v == final
 	}, "cache did not converge to final value %s", final)
 }
 
@@ -339,7 +339,7 @@ func TestGoRedisClusterClientReportsUnsupported(t *testing.T) {
 	if err := g.Set(context.Background(), k, []byte("v"), 0); err != nil {
 		t.Fatal(err)
 	}
-	if v, err := g.GetCached(context.Background(), k); err != nil || string(v) != "v" {
+	if v, err := g.GetCached(context.Background(), k); err != nil || v != "v" {
 		t.Fatalf("got %q %v", v, err)
 	}
 }

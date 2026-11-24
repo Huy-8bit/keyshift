@@ -190,21 +190,6 @@ Policies are JSON documents; see docs/configuration.md#policies.`)
 	if *service != "" {
 		scope = *service
 	}
-	readPolicy := func() (*policy.Policy, error) {
-		if *file == "" {
-			return nil, fmt.Errorf("-f is required")
-		}
-		var r io.Reader = os.Stdin
-		if *file != "-" {
-			f, err := os.Open(*file)
-			if err != nil {
-				return nil, err
-			}
-			defer func() { _ = f.Close() }()
-			r = f
-		}
-		return policy.Parse(r)
-	}
 	switch sub {
 	case "get":
 		var all map[string]*policy.Envelope
@@ -227,14 +212,9 @@ Policies are JSON documents; see docs/configuration.md#policies.`)
 		if cf.json {
 			return printJSON(out, h)
 		}
-		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "TIME\tSCOPE\tACTION\tVERSION\tROLLOUT\tACTOR")
-		for _, e := range h {
-			fmt.Fprintf(tw, "%s\t%s\t%s\tv%d\t%d%%\t%s\n", e.At.Format(time.RFC3339), e.Service, e.Action, e.Version, e.RolloutPercent, e.Actor)
-		}
-		return tw.Flush()
+		return printHistory(out, h)
 	case "validate":
-		p, err := readPolicy()
+		p, err := readPolicyFile(*file)
 		if err != nil {
 			return err
 		}
@@ -244,7 +224,7 @@ Policies are JSON documents; see docs/configuration.md#policies.`)
 			eff.Admission.MinHitRatio, eff.Budget.MaxEntries, bytesHuman(eff.Budget.MaxMemoryBytes))
 		return nil
 	case "set":
-		p, err := readPolicy()
+		p, err := readPolicyFile(*file)
 		if err != nil {
 			return err
 		}
@@ -282,6 +262,31 @@ Policies are JSON documents; see docs/configuration.md#policies.`)
 		return nil
 	}
 	return fmt.Errorf("unknown policy subcommand %q", sub)
+}
+
+// readPolicyFile parses a policy from path ("-" reads stdin).
+func readPolicyFile(path string) (*policy.Policy, error) {
+	if path == "" {
+		return nil, fmt.Errorf("-f is required")
+	}
+	if path == "-" {
+		return policy.Parse(os.Stdin)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return policy.Parse(f)
+}
+
+func printHistory(out io.Writer, h []controller.HistoryEntry) error {
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "TIME\tSCOPE\tACTION\tVERSION\tROLLOUT\tACTOR")
+	for _, e := range h {
+		fmt.Fprintf(tw, "%s\t%s\t%s\tv%d\t%d%%\t%s\n", e.At.Format(time.RFC3339), e.Service, e.Action, e.Version, e.RolloutPercent, e.Actor)
+	}
+	return tw.Flush()
 }
 
 // rawGet is used by doctor to probe the controller.

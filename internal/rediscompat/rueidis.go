@@ -95,7 +95,7 @@ func NewRueidis(ctx context.Context, o RueidisOptions) (*Rueidis, error) {
 		r.caps.Topology = TopologyCluster
 	}
 	if info, err := o.Client.Do(ctx, o.Client.B().Info().Section("server").Build()).ToString(); err == nil {
-		r.caps.ServerVersion = ParseInfoField(info, "redis_version")
+		r.caps.ServerVersion = ParseServer(info).String()
 	}
 	if o.CachingUnavailable != "" {
 		r.caps.Reason = o.CachingUnavailable
@@ -114,15 +114,32 @@ func NewRueidis(ctx context.Context, o RueidisOptions) (*Rueidis, error) {
 // Client returns the underlying rueidis client.
 func (r *Rueidis) Client() rueidis.Client { return r.c }
 
-func (r *Rueidis) GetDirect(ctx context.Context, key string) ([]byte, error) {
-	b, err := r.c.Do(ctx, r.c.B().Get().Key(key).Build().Pin()).AsBytes()
-	if rueidis.IsRedisNil(err) {
-		return nil, ErrNil
-	}
-	return b, err
+func (r *Rueidis) GetDirect(ctx context.Context, key string) (string, error) {
+	return rueidisString(r.c.Do(ctx, r.c.B().Get().Key(key).Build().Pin()))
 }
 
-func (r *Rueidis) GetCached(ctx context.Context, key string) ([]byte, error) {
+func (r *Rueidis) GetDirectMulti(ctx context.Context, keys []string) []Result {
+	cmds := make(rueidis.Commands, len(keys))
+	for i, k := range keys {
+		cmds[i] = r.c.B().Get().Key(k).Build().Pin()
+	}
+	out := make([]Result, len(keys))
+	for i, res := range r.c.DoMulti(ctx, cmds...) {
+		out[i].Value, out[i].Err = rueidisString(res)
+	}
+	return out
+}
+
+// rueidisString maps a rueidis nil reply to ErrNil.
+func rueidisString(res rueidis.RedisResult) (string, error) {
+	v, err := res.ToString()
+	if rueidis.IsRedisNil(err) {
+		return "", ErrNil
+	}
+	return v, err
+}
+
+func (r *Rueidis) GetCached(ctx context.Context, key string) (string, error) {
 	if !r.caps.Caching {
 		return r.GetDirect(ctx, key)
 	}
@@ -148,11 +165,7 @@ func (r *Rueidis) GetCached(ctx context.Context, key string) ([]byte, error) {
 			r.reg.forget(key)
 		}
 	}
-	b, err := res.AsBytes()
-	if rueidis.IsRedisNil(err) {
-		return nil, ErrNil
-	}
-	return b, err
+	return rueidisString(res)
 }
 
 func (r *Rueidis) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {

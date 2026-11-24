@@ -1,6 +1,6 @@
 # Architecture
 
-KeyShift has five parts. Only the SDK runs on the request path.
+KeyShift separates the application-side SDK from its optional control plane and operational tools. Only the SDK participates in application Redis requests.
 
 | Component | Location | Role | Required |
 |---|---|---|---|
@@ -48,6 +48,14 @@ Get(key)
   └─ otherwise ─► backend.GetDirect ─► application client (no tracking)
                  detector.Observe(key, size)   sharded lock, O(log capacity)
 
+MGet(keys...)
+  admitted keys: as Get (local cache path, one by one; hits never touch the network)
+  other keys:    backend.GetDirectMulti ─► one pipeline of GETs (one round trip per node)
+                 detector.Observe for each key
+
+NotifyWrite(keys...)
+  engine.ObserveWrite + backend.Forget for each key (never contacts Redis)
+
 every Detection.Window:
   engine.Rotate
     1. harvest per-key counters of admitted keys (reads, fills, invalidations)
@@ -58,7 +66,7 @@ every Detection.Window:
   telemetry aggregate += window report   (fingerprints computed here, not per request)
 ```
 
-The request path never performs remote calls, never takes a global lock, and allocates nothing beyond what the Redis client allocates.
+Cache hits are served locally. Direct reads and cache misses contact Redis; detector updates for uncached keys use a shard lock. The controller is not involved in either path.
 
 ## Driver adapters
 
@@ -77,13 +85,13 @@ go-redis `ClusterClient` has no client-side caching in v9.23. With the go-redis 
 
 ### rueidis
 
-rueidis implements `CLIENT TRACKING ON OPTIN`: it sends `CLIENT CACHING YES` before each `DoCache` command. KeyShift calls `DoCache` (with `ToStaticTTL`, so no MULTI/PTTL/EXEC wrapper; freshness comes from invalidations bounded by `max_staleness`) for admitted keys and `Do` for everything else. KeyShift installs its own bounded cache store through rueidis's documented `NewCacheStoreFn` / `SimpleCache` adapter. rueidis keeps single-flight and connection-close semantics, and KeyShift adds a global memory and entry budget across connections, per-key forgetting after local writes, and statistics. Cluster redirects (MOVED/ASK) are handled by rueidis.
+rueidis implements `CLIENT TRACKING ON OPTIN`: it sends `CLIENT CACHING YES` before each `DoCache` command. KeyShift calls `DoCache` (with `ToStaticTTL`, so no MULTI/PTTL/EXEC wrapper) for admitted keys and `Do` for everything else. Invalidations and the maximum entry age provide freshness controls, not strong consistency. KeyShift installs its own bounded cache store through rueidis's documented `NewCacheStoreFn` / `SimpleCache` adapter. rueidis keeps single-flight and connection-close semantics, and KeyShift adds a global memory and entry budget across connections, per-key forgetting after local writes, and statistics. Cluster redirects (MOVED/ASK) are handled by rueidis.
 
 ## Safety layers
 
 1. **Client library tracking**: invalidation on write and expiry, flush on connection loss.
-2. **KeyShift health monitor**: probes `CLIENT TRACKINGINFO` on the tracked path. A single failure, a timeout (enforced by the monitor even if the client ignores context deadlines), or a cache-path transport error suspends caching immediately and flushes the local cache. Recovery requires consecutive successful probes and starts from an empty cache.
-3. **`max_staleness`**: a hard upper bound on how long any entry is served without a refetch.
+2. **KeyShift health monitor**: probes `CLIENT TRACKINGINFO` on the tracked path. A detected failure, timeout (enforced even if the client ignores context deadlines), or cache-path transport error suspends caching and flushes the local cache. Recovery requires consecutive successful probes and starts from an empty cache.
+3. **`max_staleness`**: limits how long an entry is served without a refetch; it does not make cached reads strongly consistent.
 4. **Policy**: deny patterns, deny fingerprints, `explicit` mode, `off` mode, and `GetFresh` for authoritative reads.
 
 ## Controller
@@ -101,7 +109,7 @@ every AggregateInterval:
 
 - **State is in memory** except policies, which persist to `--data-dir` with atomic file replacement. After a restart the global view rebuilds from telemetry within one report interval.
 - **Aggregation uses the latest batch of each fresh instance**. Re-sending a batch cannot double count, and an instance that disappears drops out after `--fresh-for`.
-- **Policies** are versioned envelopes `{current, previous, rollout_percent}`. Each instance deterministically selects `current` or `previous` by hashing its identity (`policy.RolloutBucket`), so a staged rollout is stable across restarts.
+- **Policies** are versioned envelopes `{current, previous, rollout_percent}`. Each instance deterministically selects `current` or `previous` by hashing its identity (`policy.RolloutBucket`). The selection is stable for the same identity; the default generated ID changes on restart.
 
 See [scaling.md](scaling.md) for sizing and [security-model.md](security-model.md) for the trust model.
 

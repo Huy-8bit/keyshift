@@ -2,20 +2,20 @@
 
 **KeyShift does not provide strong consistency or linearizability.** Redis client tracking delivers invalidations asynchronously. A value cached by one instance can be served after another client has changed it, until the invalidation reaches that instance.
 
-## What KeyShift guarantees
+## Write and invalidation behavior
 
 1. **Writes always go to Redis.** `Set` and `Del` are ordinary Redis commands; KeyShift never acknowledges a write locally.
-2. **Read-your-writes within one instance** for writes made through the same `keyshift.Client`: the local entry is dropped after the write returns, and a cache fill that was already in flight when the write completed is not cached (go-redis: the fill is rejected; rueidis: the entry is dropped again right after the fill). This race was found by the benchmark's stale-read detector (96 stale reads out of ~1.7M in the `local-hot` scenario before the fix) and is covered by `TestGatedCacheRejectsFillOverlappingLocalWrite`.
+2. **Local writes invalidate local entries.** `Set` and `Del` drop the affected entries after the Redis command. For writes through another path, call `NotifyWrite(keys...)` after the write; without it, the instance relies on asynchronous server invalidation. The fill guard also handles fills that overlap a local write: go-redis rejects the fill, while rueidis drops the entry after the fill. With rueidis, another concurrent reader can briefly hit the entry between the fill and that drop. Do not rely on cached reads for strict read-your-writes under concurrent fills; use `GetFresh` when freshness is required.
 3. **Invalidation on external change** through Redis client tracking: `SET`, `DEL`, expiry, `FLUSHALL`, and tracking-table eviction.
-4. **No serving after tracking loss**: when the tracked connection closes, the client library evicts its entries; when tracking cannot be confirmed (probe failure, timeout, transport error), KeyShift suspends caching and flushes the local cache.
-5. **Hard staleness bound**: no entry is served more than `max_staleness` (default 3 s) after it was fetched, even if every other mechanism fails.
-6. **Redis errors are not hidden**: when Redis is unavailable, `Get` returns the Redis error. KeyShift never serves cached data *because* Redis is down. Cache hits that happen before KeyShift notices an outage are bounded by items 4 and 5.
+4. **Tracking loss response**: when the client library detects a tracked connection closing, it evicts its entries. When a probe fails or times out, or the cache path reports a transport error, KeyShift suspends caching and flushes the local cache.
+5. **Maximum entry age**: `max_staleness` (default 3 s) limits how long an entry can be served without a refetch. It is not a guarantee of linearizability or a bound on the age of the underlying data.
+6. **Redis errors are not hidden on the direct path**: a direct read returns Redis errors to the caller. A cache hit can still succeed before KeyShift detects an outage; KeyShift does not deliberately serve stale data as an outage fallback. Entry age and tracking health are separate safeguards.
 
 ## What it does not guarantee
 
 - Monotonic reads across `Get` and `GetFresh`: a `GetFresh` can return a newer value than a later cached `Get`.
 - Ordering between keys: invalidations for different keys may be applied in any order relative to each other.
-- Bounded staleness smaller than the invalidation delivery time. Typical delivery is sub-millisecond to a few milliseconds on a healthy connection. Under silent partitions, the bound is `HealthInterval + HealthTimeout` (≈ 1.6 s by default), and ultimately `max_staleness`.
+- A fixed invalidation delivery time. A silent partition may remain undetected until a probe fails; probes have ±10% interval jitter and are subject to scheduling and network behavior. `max_staleness` provides the separate entry-age backstop.
 
 ## Measured behavior
 

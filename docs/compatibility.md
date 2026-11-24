@@ -1,5 +1,7 @@
 # Compatibility
 
+This page describes the supported integrations and the environments reported as tested. A successful capability check does not replace testing against your own Redis topology, ACLs, network, and workload.
+
 ## Toolchain and dependencies
 
 | Component | Version | Notes |
@@ -14,7 +16,7 @@ KeyShift depends on documented extension points: `redis.Options.ClientSideCache`
 
 ## Tested Redis servers
 
-`make test-integration` and the compatibility matrix run the adapter, SDK, fault, and end-to-end suites with the race detector against:
+The release verification reported the following results. `make test-integration` uses the Redis versions configured in the test Compose file; additional versions require separate runs. `make test-compat` targets standalone Valkey.
 
 | Server | Result |
 |---|---|
@@ -22,9 +24,13 @@ KeyShift depends on documented extension points: `redis.Options.ClientSideCache`
 | Redis 7.4 (standalone) | ✅ all suites pass; HOTKEYS correctly reported unsupported |
 | Redis 8.4 (standalone) | ✅ all suites pass |
 | Redis 8.6.8 (standalone) | ✅ all suites pass, including HOTKEYS |
-| Redis 8.6.8 Cluster (3 masters) | ✅ rueidis caching, invalidation across nodes, slot migration (MOVED), go-redis detection-only mode |
+| Redis 8.6.8 Cluster (3 masters) | ✅ rueidis caching, invalidation across nodes, slot migration (MOVED), cross-slot `MGet` pipelines, go-redis detection-only mode |
+| Valkey 8.1 (standalone) | ✅ SDK and adapter suites pass (`make test-compat`, also in CI) |
+| Valkey 9.0.8 (standalone) | ✅ SDK and adapter suites pass (run manually with `KEYSHIFT_TEST_REDIS_ADDR`) |
 
-Not tested: Redis Sentinel (go-redis `FailoverClient` should behave like a standalone client but is unverified), Redis Enterprise, Valkey, cloud-managed Redis variants, Redis behind proxies such as Envoy or twemproxy, and replicas as read endpoints. Contributions with test results are welcome.
+Valkey runs the SDK (`pkg/keyshift`) and adapter (`internal/rediscompat`) integration suites, which cover caching, invalidation on SET, DEL, expiry and FLUSHALL, read-your-writes, `MGet`, `NotifyWrite`, budgets, and tracking health. The fault-injection and Redis-restart suites run against Redis only. Valkey has no `HOTKEYS` command, so `keyshift inspect hotkeys` reports it as unsupported.
+
+Not tested: Redis Sentinel (go-redis `FailoverClient` should behave like a standalone client but is unverified), Redis Enterprise, Valkey Cluster, cloud-managed Redis variants, Redis behind proxies such as Envoy or twemproxy, and replicas as read endpoints. Contributions with test results are welcome.
 
 ## Capability matrix
 
@@ -39,7 +45,7 @@ Not tested: Redis Sentinel (go-redis `FailoverClient` should behave like a stand
 | ACL denies `CLIENT TRACKING` / `CLIENT SETNAME` | ❌ | ✅ | `unsupported` |
 | `Cache.Mode = Off` | ❌ | ✅ | `disabled` |
 
-In every unsupported case reads go directly to Redis with normal semantics, and `Stats().Capabilities.Reason` explains why.
+When a client is successfully created in an unsupported caching configuration, reads use the direct Redis path and `Stats().Capabilities.Reason` explains why caching is unavailable. Connection or initialization errors can still prevent client creation.
 
 ## Minimum ACL
 

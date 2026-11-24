@@ -30,6 +30,8 @@ type fakeBackend struct {
 	caching   bool
 	trackErr  atomic.Pointer[error]
 	cachedErr atomic.Pointer[error]
+	directErr atomic.Pointer[error]
+	batches   atomic.Int32
 	flushes   atomic.Int32
 	hits      atomic.Uint64
 	misses    atomic.Uint64
@@ -41,26 +43,39 @@ func newFake(h rediscompat.Hooks) *fakeBackend {
 	return &fakeBackend{data: map[string][]byte{}, cache: map[string][]byte{}, hooks: h, caching: true}
 }
 
-func (f *fakeBackend) GetDirect(_ context.Context, k string) ([]byte, error) {
+func (f *fakeBackend) GetDirect(_ context.Context, k string) (string, error) {
 	f.direct.Add(1)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	v, ok := f.data[k]
 	if !ok {
-		return nil, rediscompat.ErrNil
+		return "", rediscompat.ErrNil
 	}
-	return v, nil
+	return string(v), nil
 }
 
-func (f *fakeBackend) GetCached(ctx context.Context, k string) ([]byte, error) {
+func (f *fakeBackend) GetDirectMulti(ctx context.Context, keys []string) []rediscompat.Result {
+	f.batches.Add(1)
+	out := make([]rediscompat.Result, len(keys))
+	for i, k := range keys {
+		if p := f.directErr.Load(); p != nil {
+			out[i].Err = *p
+			continue
+		}
+		out[i].Value, out[i].Err = f.GetDirect(ctx, k)
+	}
+	return out
+}
+
+func (f *fakeBackend) GetCached(ctx context.Context, k string) (string, error) {
 	if p := f.cachedErr.Load(); p != nil {
-		return nil, *p
+		return "", *p
 	}
 	f.mu.Lock()
 	if v, ok := f.cache[k]; ok {
 		f.mu.Unlock()
 		f.hits.Add(1)
-		return v, nil
+		return string(v), nil
 	}
 	f.mu.Unlock()
 	f.misses.Add(1)
@@ -68,7 +83,7 @@ func (f *fakeBackend) GetCached(ctx context.Context, k string) ([]byte, error) {
 	v, err := f.GetDirect(ctx, k)
 	if err == nil {
 		f.mu.Lock()
-		f.cache[k] = v
+		f.cache[k] = []byte(v)
 		f.mu.Unlock()
 	}
 	return v, err

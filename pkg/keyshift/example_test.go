@@ -85,6 +85,34 @@ func ExampleClient_GetFresh() {
 	}
 }
 
+func ExampleClient_MGet() {
+	var client *keyshift.Client // from keyshift.New
+	ctx := context.Background()
+	// Admitted keys are served locally; the others are fetched in one
+	// pipeline, even when they live on different Cluster nodes.
+	items, err := client.MGet(ctx, "product:1", "product:2", "product:3")
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, it := range items {
+		if it.Found {
+			fmt.Println(it.Key, it.Value)
+		}
+	}
+}
+
+func ExampleClient_NotifyWrite() {
+	var client *keyshift.Client // from keyshift.NewFromGoRedis
+	ctx := context.Background()
+	// Commands KeyShift does not wrap run on the underlying client. Telling
+	// KeyShift about the write drops this instance's local entry at once,
+	// instead of waiting for the server invalidation.
+	if err := client.GoRedis().Incr(ctx, "views:42").Err(); err != nil {
+		log.Fatal(err)
+	}
+	client.NotifyWrite("views:42")
+}
+
 func ExampleClient_ApplyPolicy() {
 	var client *keyshift.Client // from keyshift.New
 	err := client.ApplyPolicy(&keyshift.Policy{
