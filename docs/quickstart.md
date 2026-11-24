@@ -70,6 +70,8 @@ ks, err := keyshift.NewFromGoRedis(rdb, keyshift.Config{ServiceName: "product-se
 
 `NewFromGoRedis` never reconfigures `rdb`. It creates a small dedicated client for cached reads from `rdb`'s options. `ks.Close()` does not close `rdb`. See `examples/standalone` for an HTTP service with Prometheus metrics and dependency injection.
 
+Reads that fetch several keys can use `ks.MGet(ctx, keys...)`: admitted keys come from the local cache and the rest from one pipeline. Commands KeyShift does not wrap (`INCR`, `HSET`, Lua scripts, …) keep running on `rdb`; after a write that changes a string key this service also reads through KeyShift, call `ks.NotifyWrite(key)` so this instance never serves the old local value.
+
 For **Redis Cluster** caching use the rueidis driver:
 
 ```go

@@ -64,12 +64,27 @@ type CacheStats struct {
 	ResidencyKnown bool `json:"residency_known"`
 }
 
+// Result is the outcome of reading one key of a batch.
+type Result struct {
+	Value string
+	// Err is nil, ErrNil when the key does not exist, or the error for this
+	// key (a Redis error reply or a transport error).
+	Err error
+}
+
 // Backend is the adapter contract.
+//
+// Reads return strings because both client libraries hold replies as
+// strings: returning []byte would copy every value once more.
 type Backend interface {
 	// GetDirect reads from Redis without client-side caching or tracking.
-	GetDirect(ctx context.Context, key string) ([]byte, error)
+	GetDirect(ctx context.Context, key string) (string, error)
+	// GetDirectMulti reads keys without client-side caching in one pipeline
+	// (one round trip per Redis node; cross-slot keys are allowed). Results
+	// are in key order.
+	GetDirectMulti(ctx context.Context, keys []string) []Result
 	// GetCached reads through the tracked client-side cache.
-	GetCached(ctx context.Context, key string) ([]byte, error)
+	GetCached(ctx context.Context, key string) (string, error)
 	// Set writes key and drops any local entry for it.
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
 	// Del deletes keys and drops their local entries.

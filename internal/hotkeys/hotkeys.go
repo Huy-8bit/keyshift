@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/Huy-8bit/keyshift/internal/rediscompat"
 )
 
 // Errors returned by Run.
@@ -123,33 +125,29 @@ func classify(err error) error {
 // Detect checks whether HOTKEYS is available and permitted on c's node.
 // It only uses read-only probes (COMMAND INFO and ACL DRYRUN-free checks).
 func Detect(ctx context.Context, c *redis.Client) Capability {
-	cap := Capability{Node: c.Options().Addr}
+	hc := Capability{Node: c.Options().Addr}
 	if info, err := c.Info(ctx, "server").Result(); err == nil {
-		for _, line := range strings.Split(info, "\n") {
-			if v, ok := strings.CutPrefix(strings.TrimSpace(line), "redis_version:"); ok {
-				cap.ServerVersion = v
-			}
-		}
+		hc.ServerVersion = rediscompat.ParseServer(info).String()
 	}
 	res, err := c.Do(ctx, "COMMAND", "INFO", "HOTKEYS").Slice()
 	if err != nil {
-		cap.Reason = classify(err).Error()
-		return cap
+		hc.Reason = classify(err).Error()
+		return hc
 	}
 	if len(res) == 0 || res[0] == nil {
-		cap.Reason = ErrUnsupported.Error()
-		return cap
+		hc.Reason = ErrUnsupported.Error()
+		return hc
 	}
-	cap.Supported = true
+	hc.Supported = true
 	// HOTKEYS GET is side-effect free; it reveals ACL permission.
 	if err := c.Do(ctx, "HOTKEYS", "GET").Err(); err != nil && !errors.Is(err, redis.Nil) {
 		if e := classify(err); errors.Is(e, ErrNotPermitted) {
-			cap.Reason = e.Error()
-			return cap
+			hc.Reason = e.Error()
+			return hc
 		}
 	}
-	cap.Permitted = true
-	return cap
+	hc.Permitted = true
+	return hc
 }
 
 // Run starts a session, waits for it to finish, collects results, and

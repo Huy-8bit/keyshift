@@ -17,7 +17,7 @@ Guarantees (tested in `TestTopKRecallZipf` and `FuzzDetector`): for every report
 
 | Quantity | Where it comes from |
 |---|---|
-| logical reads (local request frequency) | every `Get`/`GetBytes`/`GetFresh` call, including local cache hits |
+| logical reads (local request frequency) | every `Get`/`GetBytes`/`GetFresh` call and every key of an `MGet`, including local cache hits |
 | Redis reads | direct reads + bypasses + cache fills (requests that reached Redis) |
 | reads avoided | local cache hits |
 | global frequency | controller aggregation of per-instance telemetry |

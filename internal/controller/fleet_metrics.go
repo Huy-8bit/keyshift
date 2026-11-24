@@ -4,6 +4,8 @@ import (
 	"strconv"
 
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/Huy-8bit/keyshift/internal/policy"
 )
 
 // fleetCollector exposes the aggregated fleet view as Prometheus metrics so
@@ -79,11 +81,24 @@ func keyLabel(k KeyView) string {
 	return "fp:" + k.FP[:12]
 }
 
+// gaugeFunc emits one gauge sample.
+type gaugeFunc func(name string, val float64, labels ...string)
+
 func (c *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 	v := c.s.agg.Current()
 	g := func(name string, val float64, labels ...string) {
 		ch <- prometheus.MustNewConstMetric(c.descs[name], prometheus.GaugeValue, val, labels...)
 	}
+	collectOverview(g, v)
+	collectServices(g, v.Services)
+	collectHotKeys(g, v.Keys, c.s.cfg.MetricsTopKeys)
+	if c.s.cfg.MetricsInstances {
+		collectInstances(g, v.Instances)
+	}
+	collectPolicies(g, c.s.policies.All())
+}
+
+func collectOverview(g gaugeFunc, v *View) {
 	ov := v.Overview
 	g("keyshift_fleet_instances", float64(ov.ActiveInstances), "active")
 	g("keyshift_fleet_instances", float64(ov.StaleInstances), "stale")
@@ -113,8 +128,10 @@ func (c *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 	for _, w := range ov.Warnings {
 		g("keyshift_fleet_warnings", float64(max(w.Count, 1)), w.Code, w.Severity)
 	}
+}
 
-	for _, sv := range v.Services {
+func collectServices(g gaugeFunc, services []ServiceView) {
+	for _, sv := range services {
 		g("keyshift_fleet_service_instances", float64(sv.Instances), sv.Name)
 		for i, val := range ratesByKind(sv.Rates) {
 			g("keyshift_fleet_service_rate", val, sv.Name, rateKinds[i])
@@ -124,14 +141,16 @@ func (c *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 		g("keyshift_fleet_service_admitted_keys", float64(sv.AdmittedKeys), sv.Name)
 		g("keyshift_fleet_service_tracking_unhealthy", float64(sv.TrackingUnhealthy), sv.Name)
 	}
+}
 
+// collectHotKeys exports the top hottest keys. Instance-scoped fingerprints
+// can repeat across instances; only the first (hottest) is exported so that
+// label sets stay unique.
+func collectHotKeys(g gaugeFunc, keys []KeyView, top int) {
 	seen := map[string]bool{}
-	for i, k := range v.Keys {
-		if i >= c.s.cfg.MetricsTopKeys {
-			break
-		}
+	for _, k := range keys[:min(len(keys), max(top, 0))] {
 		name, fp := keyLabel(k), k.FP
-		if seen[fp] { // instance-scoped fingerprints can repeat; keep the first
+		if seen[fp] {
 			continue
 		}
 		seen[fp] = true
@@ -148,23 +167,25 @@ func (c *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 		g("keyshift_fleet_hotkey_cached_hit_ratio", k.CachedHitRatio, name, fp)
 	}
+}
 
-	if c.s.cfg.MetricsInstances {
-		for _, iv := range v.Instances {
-			for i, val := range ratesByKind(iv.Rates) {
-				g("keyshift_fleet_instance_rate", val, iv.Service, iv.Instance, rateKinds[i])
-			}
-			g("keyshift_fleet_instance_hit_ratio", iv.HitRatio, iv.Service, iv.Instance)
-			healthy := 0.0
-			if iv.Tracking.State == "healthy" {
-				healthy = 1
-			}
-			g("keyshift_fleet_instance_tracking_healthy", healthy, iv.Service, iv.Instance)
-			g("keyshift_fleet_instance_telemetry_age_seconds", iv.AgeSeconds, iv.Service, iv.Instance)
+func collectInstances(g gaugeFunc, instances []InstanceView) {
+	for _, iv := range instances {
+		for i, val := range ratesByKind(iv.Rates) {
+			g("keyshift_fleet_instance_rate", val, iv.Service, iv.Instance, rateKinds[i])
 		}
+		g("keyshift_fleet_instance_hit_ratio", iv.HitRatio, iv.Service, iv.Instance)
+		healthy := 0.0
+		if iv.Tracking.State == "healthy" {
+			healthy = 1
+		}
+		g("keyshift_fleet_instance_tracking_healthy", healthy, iv.Service, iv.Instance)
+		g("keyshift_fleet_instance_telemetry_age_seconds", iv.AgeSeconds, iv.Service, iv.Instance)
 	}
+}
 
-	for scope, env := range c.s.policies.All() {
+func collectPolicies(g gaugeFunc, envs map[string]*policy.Envelope) {
+	for scope, env := range envs {
 		g("keyshift_controller_policy_version", float64(env.Current.Version), scope)
 		g("keyshift_controller_policy_rollout_percent", float64(env.RolloutPercent), scope)
 		for _, m := range []string{"adaptive", "explicit", "off"} {

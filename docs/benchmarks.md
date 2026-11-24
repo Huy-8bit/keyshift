@@ -394,6 +394,24 @@ At the target pacing (5,000 instances every 30 s ≈ 167 uploads/s, 3,333 record
 
 During development the simulator first reported 100% rejected uploads. The cause was a controller defect: a token configured for both ingest and viewer kept only its highest role. Earlier numbers from that run were discarded.
 
+## Cache-hit cost
+
+The scenario results above were recorded with release 0.1.0. Later releases removed two value copies from every `Get` (see the changelog), which mainly matters for large values. The cost of a single local hit is measured separately, with parallel hits on one admitted key against Redis 8.6 in Docker (Apple M1 Pro, 8 cores):
+
+| value size | go-redis `LocalCache` (no KeyShift) | `keyshift.Get`, go-redis driver | `keyshift.Get`, rueidis driver |
+|---|---|---|---|
+| 64 B | 272 ns | 375 ns | 282 ns |
+| 1 KiB | 527 ns | 925 ns | 270 ns |
+| 16 KiB | 3.5 µs | 6.5–8.3 µs | 271 ns |
+
+The go-redis driver copies each hit once more than go-redis on its own, because KeyShift wraps go-redis's cache to keep read-your-writes after local writes; the rueidis driver does not copy at all. The analysis is in [engineering-notes.md](engineering-notes.md#measured-trade-off-the-go-redis-cache-wrapper).
+
+```bash
+make test-infra-up
+KEYSHIFT_TEST_REDIS_ADDR=localhost:16379 go test -tags integration -run '^$' -bench CacheHit -benchmem \
+  ./pkg/keyshift/ ./internal/rediscompat/
+```
+
 ## Reproducing
 
 ```bash

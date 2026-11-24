@@ -45,6 +45,8 @@ jobs:
         with: { go-version-file: go.mod }
       - name: Integration and fault tests (Redis 8.6, 7.4, Cluster)
         run: make test-integration
+      - name: Valkey compatibility (SDK and adapter suites)
+        run: make test-compat
       - name: Benchmark smoke (lightweight CI mode)
         run: |
           go run ./cmd/keyshift bench -redis localhost:16379 -yes \

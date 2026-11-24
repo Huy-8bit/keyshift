@@ -20,9 +20,18 @@ var DefaultBudget = Budget{MaxEntries: 1000, MaxMemoryBytes: 16 << 20}
 // DefaultValidFor is how long a remote policy stays valid without refresh.
 const DefaultValidFor = 10 * time.Minute
 
+// Policy sources reported in Effective.Source.
+const (
+	// SourceLocal is the SDK's own configuration.
+	SourceLocal = "local"
+	// SourceRemote is a policy merged over the local configuration: one
+	// received from the controller or applied programmatically.
+	SourceRemote = "remote"
+)
+
 // Effective is the fully resolved policy an SDK instance enforces.
 type Effective struct {
-	// Source is "local" or "remote".
+	// Source is SourceLocal or SourceRemote.
 	Source    string
 	Version   int64
 	Mode      Mode
@@ -46,7 +55,7 @@ func Resolve(local, remote *Policy) *Effective {
 		local = &Policy{Mode: ModeAdaptive}
 	}
 	e := &Effective{
-		Source:    "local",
+		Source:    SourceLocal,
 		Version:   local.Version,
 		Mode:      local.Mode,
 		Admission: fill(local.Admission, DefaultAdmission),
@@ -58,7 +67,7 @@ func Resolve(local, remote *Policy) *Effective {
 	denyFP := append([]string(nil), local.DenyFingerprints...)
 
 	if remote != nil {
-		e.Source = "remote"
+		e.Source = SourceRemote
 		e.Version = remote.Version
 		if local.Mode != ModeOff && remote.Mode != "" {
 			e.Mode = remote.Mode

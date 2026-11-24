@@ -35,3 +35,28 @@ Background for contributors: facts about the Redis client libraries that shaped 
 | final integration run | telemetry reporter test stopped the reporter before it processed the last response | test waits on the client-side contact count |
 | restarted test cluster container | stale `nodes.conf` made the cluster start script exit | test cluster always starts from clean node state |
 | lab policy scenario | deleting a policy on the controller left SDKs on the deleted policy until `valid_for_seconds` expired | telemetry responses carry `no_policy`; SDKs revert to their local policy at once (verified in the lab: 22 s) |
+
+## Defects found and fixed after 0.1.0
+
+| Found by | Defect | Fix |
+|---|---|---|
+| GitHub Actions (3 failed runs) | the tracking monitor cleared its in-flight flag after delivering the probe result, so a check issued right after the previous one could see that probe as still pending and record a false failure (and delay recovery) | clear the flag before delivering the result; `TestBackToBackChecksDoNotReportPending` fails on the old code |
+| cache-hit profiling | latency histograms were recorded on every read even when no Prometheus registerer was configured | the collector exists only when `Metrics.Registerer` is set |
+| cache-hit profiling | `Get` copied every value twice on top of the client library (string → `[]byte` in the adapter, `[]byte` → string in `Get`): 16 KiB hits took 12.7 µs | adapters return strings; `Get` copies nothing extra (6.5–8.3 µs), `GetBytes` copies once |
+| cache-hit profiling | every hit re-stored the value size in a shared atomic, invalidating the cache line on all cores | store only when the size changes |
+| Valkey compatibility run | `doctor` printed Valkey's compatibility `redis_version` and an empty mode ("Redis 7.2.4, mode ") | `rediscompat.ParseServer` recognizes Valkey (`server_name`, `valkey_version`, `server_mode`) |
+| CLI integration test | `inspect key` printed `-1ns` as the TTL of keys without expiry | render "no expiry" / "key does not exist" |
+
+## Measured trade-off: the go-redis cache wrapper
+
+KeyShift's go-redis adapter wraps `redis.LocalCache` (`gatedCache`) to count fills and invalidations per key and to reject fills that overlap a local write. go-redis checks for its own `*LocalCache` type before using its zero-copy hit path (`getShared`), batched invalidation, and its opt-in miss coalescing and refresh-on-invalidate; a wrapper therefore takes the generic path, which copies each hit. `go-redis` offers no hooks that would make the wrapper unnecessary (`CacheConfig` has none).
+
+Parallel cache hits, Apple M1 Pro, Redis 8.6 in Docker (`BenchmarkGoRedisCacheHit`, `BenchmarkCacheHit`):
+
+| value size | go-redis `LocalCache` | go-redis + KeyShift wrapper | `keyshift.Get` (go-redis) | `keyshift.Get` (rueidis) |
+|---|---|---|---|---|
+| 64 B | 272 ns | 341 ns | 375 ns | 282 ns |
+| 1 KiB | 527 ns | 874 ns | 925 ns | 270 ns |
+| 16 KiB | 3.5 µs | 6.6–7.2 µs | 6.5–8.3 µs | 271 ns |
+
+For small values the SDK's own work on top of the client library (admitted-set lookup, striped counters) costs about 35–50 ns per hit. At 16 KiB the time is dominated by allocating the copied value: a CPU profile shows about a third of the time in the Go heap's span-allocation lock, and repeated runs of the same benchmark vary by about 25%, so the difference between the last two go-redis columns at that size is within run-to-run noise. The correctness benefit of the wrapper (0 stale reads after local writes, versus 96 per 1.7 M reads in the `local-hot` benchmark without the fill guard) outweighs the extra copy; for large values, the rueidis driver avoids it entirely.

@@ -16,15 +16,16 @@ export KEYSHIFT_TEST_REDIS_ADDR         ?= localhost:16379
 export KEYSHIFT_TEST_RESTART_ADDR       ?= localhost:16380
 export KEYSHIFT_TEST_RESTART_CONTAINER  ?= keyshift-test-redis-restart
 export KEYSHIFT_TEST_REDIS_OLD_ADDR     ?= localhost:16381
+VALKEY_ADDR ?= localhost:16382
 export KEYSHIFT_TEST_CLUSTER_ADDRS      ?= 127.0.0.1:17001,127.0.0.1:17002,127.0.0.1:17003
 
-.PHONY: help fmt fmt-check vet lint test test-race test-integration test-fuzz bench bench-lab simulate \
+.PHONY: help fmt fmt-check vet lint test test-race test-integration test-compat test-fuzz bench bench-lab simulate \
         build docker-build docker-up docker-down lab test-infra-up test-infra-down vuln clean ci
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
-fmt: ## Format Go and TypeScript sources
+fmt: ## Format Go sources
 	gofmt -w $$(git ls-files '*.go' 2>/dev/null || find . -name '*.go')
 
 fmt-check: ## Fail if Go sources are not gofmt-formatted
@@ -54,6 +55,10 @@ test-integration: test-infra-up ## Run integration and fault tests against real 
 	# -p 1: packages share Redis servers and some tests FLUSHALL or count
 	# server-wide tracking state, so integration packages run one at a time.
 	$(GO) test -tags integration -race -count=1 -p 1 -timeout 20m $(PKGS)
+
+test-compat: test-infra-up ## Run the SDK and adapter integration suites against Valkey
+	KEYSHIFT_TEST_REDIS_ADDR=$(VALKEY_ADDR) $(GO) test -tags integration -race -count=1 -p 1 -timeout 20m \
+	  ./pkg/keyshift/... ./internal/rediscompat/...
 
 test-fuzz: ## Run every fuzz target for FUZZTIME each
 	@set -e; for target in \

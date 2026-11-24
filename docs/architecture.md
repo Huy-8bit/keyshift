@@ -48,6 +48,14 @@ Get(key)
   └─ otherwise ─► backend.GetDirect ─► application client (no tracking)
                  detector.Observe(key, size)   sharded lock, O(log capacity)
 
+MGet(keys...)
+  admitted keys: as Get (local cache path, one by one; hits never touch the network)
+  other keys:    backend.GetDirectMulti ─► one pipeline of GETs (one round trip per node)
+                 detector.Observe for each key
+
+NotifyWrite(keys...)
+  engine.ObserveWrite + backend.Forget for each key (never contacts Redis)
+
 every Detection.Window:
   engine.Rotate
     1. harvest per-key counters of admitted keys (reads, fills, invalidations)

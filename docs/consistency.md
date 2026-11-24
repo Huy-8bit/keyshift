@@ -6,6 +6,7 @@
 
 1. **Writes always go to Redis.** `Set` and `Del` are ordinary Redis commands; KeyShift never acknowledges a write locally.
 2. **Read-your-writes within one instance** for writes made through the same `keyshift.Client`: the local entry is dropped after the write returns, and a cache fill that was already in flight when the write completed is not cached (go-redis: the fill is rejected; rueidis: the entry is dropped again right after the fill). This race was found by the benchmark's stale-read detector (96 stale reads out of ~1.7M in the `local-hot` scenario before the fix) and is covered by `TestGatedCacheRejectsFillOverlappingLocalWrite`.
+   Writes made through another path (the underlying client, a Lua script, `INCR`, `EXPIRE`, …) get the same immediate guarantee when the application calls `NotifyWrite(keys...)` after them; without it they rely on the server invalidation (item 3). `TestNotifyWriteAgainstRedis` fails on both drivers without the call and passes with it.
 3. **Invalidation on external change** through Redis client tracking: `SET`, `DEL`, expiry, `FLUSHALL`, and tracking-table eviction.
 4. **No serving after tracking loss**: when the tracked connection closes, the client library evicts its entries; when tracking cannot be confirmed (probe failure, timeout, transport error), KeyShift suspends caching and flushes the local cache.
 5. **Hard staleness bound**: no entry is served more than `max_staleness` (default 3 s) after it was fetched, even if every other mechanism fails.

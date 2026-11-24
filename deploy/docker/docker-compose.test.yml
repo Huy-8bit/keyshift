@@ -21,6 +21,13 @@ services:
     container_name: keyshift-test-redis-7
     ports: ["16381:6379"]
     healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 1s, retries: 30 }
+  valkey:
+    # Valkey compatibility (`make test-compat`).
+    image: valkey/valkey:8.1
+    container_name: keyshift-test-valkey
+    command: ["valkey-server", "--save", "", "--appendonly", "no"]
+    ports: ["16382:6379"]
+    healthcheck: { test: ["CMD", "valkey-cli", "ping"], interval: 1s, retries: 30 }
   redis-cluster:
     image: redis:8.6
     container_name: keyshift-test-redis-cluster

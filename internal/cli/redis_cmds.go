@@ -15,11 +15,9 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/redis/rueidis"
 
 	"github.com/Huy-8bit/keyshift/internal/fingerprint"
 	"github.com/Huy-8bit/keyshift/internal/hotkeys"
-	"github.com/Huy-8bit/keyshift/internal/rediscompat"
 )
 
 type redisFlags struct {
@@ -75,161 +73,6 @@ func (r *redisFlags) nodes(ctx context.Context) ([]*redis.Client, func(), error)
 			c.Close()
 		}
 	}, err
-}
-
-type check struct{ status, name, detail string }
-
-func runDoctor(ctx context.Context, args []string, out io.Writer) error {
-	fs := newFlags("doctor", "[flags]", out)
-	var rf redisFlags
-	rf.register(fs)
-	var cf controllerFlags
-	cf.register(fs)
-	skipController := fs.Bool("skip-controller", false, "do not check the controller")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	var checks []check
-	add := func(status, name, format string, a ...any) {
-		checks = append(checks, check{status, name, fmt.Sprintf(format, a...)})
-	}
-
-	c := rf.standalone(2)
-	defer c.Close()
-	info, err := c.Info(ctx, "server").Result()
-	if err != nil {
-		add("FAIL", "redis connectivity", "%v", err)
-		return finishDoctor(out, checks)
-	}
-	version := rediscompat.ParseInfoField(info, "redis_version")
-	mode := rediscompat.ParseInfoField(info, "redis_mode")
-	add("PASS", "redis connectivity", "%s (Redis %s, mode %s)", rf.addr, version, mode)
-	if mode == "cluster" && !rf.cluster {
-		add("WARN", "topology", "server runs in cluster mode; re-run with -cluster")
-	}
-
-	var lat []time.Duration
-	for range 20 {
-		t0 := time.Now()
-		if c.Ping(ctx).Err() == nil {
-			lat = append(lat, time.Since(t0))
-		}
-	}
-	if len(lat) > 0 {
-		slices.Sort(lat)
-		add("INFO", "round-trip latency", "p50 %s, max %s over %d PINGs (a local cache hit avoids one round trip)", lat[len(lat)/2], lat[len(lat)-1], len(lat))
-	}
-
-	if who, err := c.Do(ctx, "ACL", "WHOAMI").Text(); err == nil {
-		add("INFO", "acl user", "%s", who)
-	}
-
-	c3 := rf.standalone(3)
-	defer c3.Close()
-	conn := c3.Conn()
-	if err := conn.Ping(ctx).Err(); err != nil {
-		add("FAIL", "resp3", "HELLO 3 failed: %v (client-side caching requires RESP3, Redis 6+)", err)
-	} else {
-		add("PASS", "resp3", "HELLO 3 accepted")
-		if err := conn.Do(ctx, "CLIENT", "TRACKING", "ON", "OPTIN").Err(); err != nil {
-			add("FAIL", "client tracking", "CLIENT TRACKING ON OPTIN failed: %v", err)
-		} else {
-			add("PASS", "client tracking", "CLIENT TRACKING ON OPTIN accepted")
-			_ = conn.Do(ctx, "CLIENT", "TRACKING", "OFF").Err()
-		}
-	}
-	_ = conn.Close()
-
-	if rf.cluster {
-		opt := rueidis.ClientOption{InitAddress: strings.Split(rf.addr, ","), Username: rf.username,
-			Password: os.Getenv("KEYSHIFT_REDIS_PASSWORD"), TLSConfig: rf.tlsConfig()}
-		r, err := rediscompat.NewRueidis(ctx, rediscompat.RueidisOptions{ClientOption: &opt, Cluster: true,
-			Limits: rediscompat.CacheLimits{MaxEntries: 10, MaxMemoryBytes: 1 << 20, MaxStaleness: time.Second}})
-		switch {
-		case err != nil:
-			add("FAIL", "keyshift rueidis driver", "%v", err)
-		case r.Capabilities().Caching:
-			add("PASS", "keyshift rueidis driver", "local caching available (OPTIN tracking, cluster)")
-		default:
-			add("WARN", "keyshift rueidis driver", "%s", r.Capabilities().Reason)
-		}
-		if r != nil {
-			_ = r.Close()
-		}
-		add("INFO", "keyshift go-redis driver", "caching is not available on go-redis ClusterClient; detection and telemetry still work")
-	} else {
-		g, err := rediscompat.NewGoRedis(ctx, rediscompat.GoRedisOptions{Direct: rf.standalone(0), OwnsDirect: true,
-			Limits: rediscompat.CacheLimits{MaxEntries: 10, MaxMemoryBytes: 1 << 20, MaxStaleness: time.Second}})
-		switch {
-		case err != nil:
-			add("FAIL", "keyshift go-redis driver", "%v", err)
-		case g.Capabilities().Caching:
-			add("PASS", "keyshift go-redis driver", "local caching available (go-redis %s client-side cache)", redis.Version())
-		default:
-			add("WARN", "keyshift go-redis driver", "%s", g.Capabilities().Reason)
-		}
-		if g != nil {
-			_ = g.Close()
-		}
-	}
-
-	if cfgv, err := c.ConfigGet(ctx, "tracking-table-max-keys").Result(); err != nil {
-		add("WARN", "tracking table limit", "cannot read tracking-table-max-keys (%v); ensure it is sized for cached keys", err)
-	} else {
-		v := cfgv["tracking-table-max-keys"]
-		status := "PASS"
-		if v != "0" && v != "" {
-			status = "INFO"
-		}
-		add(status, "tracking table limit", "tracking-table-max-keys=%s (0 = unlimited; when the limit is hit Redis evicts tracked keys and sends invalidations)", v)
-	}
-
-	nodes, closeNodes, err := rf.nodes(ctx)
-	if err != nil {
-		add("WARN", "hotkeys", "cannot enumerate nodes: %v", err)
-	} else {
-		for _, n := range nodes {
-			cap := hotkeys.Detect(ctx, n)
-			switch {
-			case cap.Supported && cap.Permitted:
-				add("PASS", "hotkeys "+cap.Node, "HOTKEYS available (Redis %s); use `keyshift inspect hotkeys`", cap.ServerVersion)
-			case cap.Supported:
-				add("INFO", "hotkeys "+cap.Node, "HOTKEYS exists but this user lacks permission (optional diagnostics only)")
-			default:
-				add("INFO", "hotkeys "+cap.Node, "HOTKEYS unavailable (Redis %s); optional, requires Redis 8.6+", cap.ServerVersion)
-			}
-		}
-		closeNodes()
-	}
-
-	if !*skipController {
-		if _, err := rawGet(ctx, &cf, "/healthz"); err != nil {
-			add("INFO", "controller", "%s unreachable (%v); the controller is optional", cf.url, err)
-		} else {
-			add("PASS", "controller", "%s healthy", cf.url)
-			var who struct{ Role string }
-			if err := cf.do(ctx, "GET", "/api/v1/whoami", nil, &who); err != nil {
-				add("WARN", "controller auth", "%v", err)
-			} else {
-				add("PASS", "controller auth", "token role: %s", who.Role)
-			}
-		}
-	}
-	return finishDoctor(out, checks)
-}
-
-func finishDoctor(out io.Writer, checks []check) error {
-	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	failed := false
-	for _, c := range checks {
-		fmt.Fprintf(tw, "[%s]\t%s\t%s\n", c.status, c.name, c.detail)
-		failed = failed || c.status == "FAIL"
-	}
-	tw.Flush()
-	if failed {
-		return exitCode(1)
-	}
-	return nil
 }
 
 func runInspect(ctx context.Context, args []string, out io.Writer) error {
@@ -390,7 +233,7 @@ func inspectKey(ctx context.Context, args []string, out io.Writer) error {
 	fmt.Fprintf(tw, "type\t%s\n", typ)
 	if typ != "none" {
 		if ttl, err := c.PTTL(ctx, key).Result(); err == nil {
-			fmt.Fprintf(tw, "ttl\t%s\n", ttl)
+			fmt.Fprintf(tw, "ttl\t%s\n", formatTTL(ttl))
 		}
 		if mem, err := c.MemoryUsage(ctx, key).Result(); err == nil {
 			fmt.Fprintf(tw, "memory usage\t%s\n", bytesHuman(mem))
@@ -402,13 +245,26 @@ func inspectKey(ctx context.Context, args []string, out io.Writer) error {
 			if n, err := c.StrLen(ctx, key).Result(); err == nil {
 				fmt.Fprintf(tw, "value bytes\t%d\n", n)
 			}
-			fmt.Fprintf(tw, "cacheable by keyshift\tyes (GET)\n")
+			fmt.Fprintf(tw, "cacheable by keyshift\tyes (Get, MGet)\n")
 		} else {
-			fmt.Fprintf(tw, "cacheable by keyshift\tno (KeyShift caches GET on string keys)\n")
+			fmt.Fprintf(tw, "cacheable by keyshift\tno (KeyShift caches string keys only)\n")
 		}
 	}
 	if h, err := hasherFromEnv(); err == nil {
 		fmt.Fprintf(tw, "fingerprint\t%s\n", h.Fingerprint(key))
 	}
 	return tw.Flush()
+}
+
+// formatTTL renders a PTTL reply. go-redis returns the -1 (no expiry) and -2
+// (no such key) replies as negative durations.
+func formatTTL(ttl time.Duration) string {
+	switch {
+	case ttl == -1 || ttl == -time.Millisecond:
+		return "no expiry"
+	case ttl < 0:
+		return "key does not exist"
+	default:
+		return ttl.String()
+	}
 }

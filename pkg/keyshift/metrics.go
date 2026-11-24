@@ -93,6 +93,7 @@ func (col *collector) Collect(ch chan<- prometheus.Metric) {
 	counter("requests_total", s.Bypasses, "get", "bypass")
 	counter("requests_total", s.Writes, "set", "direct")
 	counter("requests_total", s.Deletes, "del", "direct")
+	counter("requests_total", s.NotifiedWrites, "notify_write", "local")
 	counter("cache_hits_total", s.LocalHits)
 	counter("cache_misses_total", s.LocalMisses)
 	counter("cache_bypasses_total", s.Bypasses)

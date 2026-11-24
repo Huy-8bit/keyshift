@@ -97,7 +97,11 @@ func TestProbeIgnoringContextStillTimesOut(t *testing.T) {
 		t.Fatalf("status %+v", s)
 	}
 	close(release)
-	time.Sleep(10 * time.Millisecond)
+	// Wait until the abandoned probe has returned and released its slot.
+	deadline := time.Now().Add(time.Second)
+	for m.inflight.Load() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
 	m.CheckNow(context.Background())
 	m.CheckNow(context.Background())
 	if !m.Healthy() {
@@ -130,4 +134,17 @@ func TestFixed(t *testing.T) {
 		t.Fatalf("%+v", s)
 	}
 	m.Stop()
+}
+
+// Back-to-back checks must never see the previous, already answered probe as
+// pending (regression: the in-flight flag used to be cleared after the
+// result was delivered).
+func TestBackToBackChecksDoNotReportPending(t *testing.T) {
+	m := NewMonitor(Config{Timeout: time.Second, Probe: func(context.Context) error { return nil }})
+	for i := range 10000 {
+		m.CheckNow(context.Background())
+		if s := m.Status(); s.State != StateHealthy {
+			t.Fatalf("check %d: %+v", i, s)
+		}
+	}
 }

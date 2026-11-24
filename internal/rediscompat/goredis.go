@@ -128,17 +128,7 @@ func serverVersion(ctx context.Context, c redis.UniversalClient) string {
 	if err != nil {
 		return ""
 	}
-	return ParseInfoField(info, "redis_version")
-}
-
-// ParseInfoField extracts a field from INFO output.
-func ParseInfoField(info, field string) string {
-	for _, line := range strings.Split(info, "\n") {
-		if v, ok := strings.CutPrefix(strings.TrimSpace(line), field+":"); ok {
-			return v
-		}
-	}
-	return ""
+	return ParseServer(info).String()
 }
 
 // Tracked returns the dedicated tracking-enabled client (nil when caching is
@@ -148,23 +138,41 @@ func (g *GoRedis) Tracked() *redis.Client { return g.tracked }
 // Direct returns the application client.
 func (g *GoRedis) Direct() redis.UniversalClient { return g.direct }
 
-func (g *GoRedis) GetDirect(ctx context.Context, key string) ([]byte, error) {
-	b, err := g.direct.Get(ctx, key).Bytes()
-	if errors.Is(err, redis.Nil) {
-		return nil, ErrNil
-	}
-	return b, err
+func (g *GoRedis) GetDirect(ctx context.Context, key string) (string, error) {
+	return goRedisString(g.direct.Get(ctx, key))
 }
 
-func (g *GoRedis) GetCached(ctx context.Context, key string) ([]byte, error) {
+func (g *GoRedis) GetDirectMulti(ctx context.Context, keys []string) []Result {
+	cmds := make([]*redis.StringCmd, len(keys))
+	// Per-command errors (including redis.Nil and transport failures, which
+	// go-redis sets on every queued command) are read from each command.
+	_, _ = g.direct.Pipelined(ctx, func(p redis.Pipeliner) error {
+		for i, k := range keys {
+			cmds[i] = p.Get(ctx, k)
+		}
+		return nil
+	})
+	out := make([]Result, len(keys))
+	for i, cmd := range cmds {
+		out[i].Value, out[i].Err = goRedisString(cmd)
+	}
+	return out
+}
+
+func (g *GoRedis) GetCached(ctx context.Context, key string) (string, error) {
 	if g.tracked == nil {
 		return g.GetDirect(ctx, key)
 	}
-	b, err := g.tracked.Get(ctx, key).Bytes()
+	return goRedisString(g.tracked.Get(ctx, key))
+}
+
+// goRedisString maps go-redis's redis.Nil to ErrNil.
+func goRedisString(cmd *redis.StringCmd) (string, error) {
+	v, err := cmd.Result()
 	if errors.Is(err, redis.Nil) {
-		return nil, ErrNil
+		return "", ErrNil
 	}
-	return b, err
+	return v, err
 }
 
 func (g *GoRedis) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {

@@ -50,7 +50,7 @@ KeyShift makes the decision per instance, from measured workload: it caches a ke
 
 ## Features
 
-- **Drop-in Go SDK**: `Get`, `GetBytes`, `GetFresh`, `Set`, `Del`. It can wrap your existing go-redis client and works without any extra infrastructure.
+- **Drop-in Go SDK**: `Get`, `GetBytes`, `GetFresh`, `MGet`, `Set`, `Del`, and `NotifyWrite` for writes made through other paths. It can wrap your existing go-redis client and works without any extra infrastructure.
 - **Hot-key detection**: a bounded, lock-sharded Space-Saving top-K detector with window decay, zero allocations per read, and fixed memory.
 - **Adaptive admission**: read rate, predicted and observed hit ratio, write and invalidation rates, value size, budgets, hysteresis, and exponential cooldown. `Explain(key)` tells you why a key is or is not cached.
 - **Built on mature clients**: go-redis v9 (standalone) and rueidis (standalone and Redis Cluster, `OPTIN` tracking). No custom RESP or tracking protocol code.
@@ -168,6 +168,28 @@ ks, err := keyshift.NewFromRueidis(
 balance, err := client.GetFresh(ctx, "balance:42") // always reads Redis
 ```
 
+### Batch reads
+
+```go
+// Admitted keys come from the local cache; the rest are fetched in one
+// pipeline (one round trip per node, so keys may span Cluster slots).
+items, err := client.MGet(ctx, "product:1", "product:2", "product:3")
+for _, it := range items {
+    if it.Found {
+        fmt.Println(it.Key, it.Value)
+    }
+}
+```
+
+### Writes made outside KeyShift
+
+```go
+// INCR, HSET, Lua scripts, EXPIRE...: run them on the underlying client,
+// then tell KeyShift so this instance never serves the old local value.
+client.GoRedis().Incr(ctx, "views:42")
+client.NotifyWrite("views:42")
+```
+
 ### Prometheus metrics
 
 ```go
@@ -267,6 +289,7 @@ Full results, methodology, unfavorable workloads, and the 5,000-instance simulat
 | --- | --- | --- | --- |
 | Redis 6.2, 7.4, 8.4, 8.6 (standalone) | ✅ caching (DB 0) | ✅ caching | 8.6+ |
 | Redis Cluster 8.6 | detection only | ✅ caching | per node |
+| Valkey 8.1, 9.0 (standalone) | ✅ caching (DB 0) | ✅ caching | – |
 | No RESP3 or no `CLIENT` permission | direct reads | direct reads | – |
 
 Details, minimum ACL, and the versioning policy are in [docs/compatibility.md](docs/compatibility.md).
@@ -284,10 +307,10 @@ Details, minimum ACL, and the versioning policy are in [docs/compatibility.md](d
 
 ## Roadmap
 
-- Cache more read commands (`HGET`, `MGET`, …) with verified invalidation semantics
+- Cache more read commands (`HGET`, …) with verified invalidation semantics
 - Distributed scale tests on Kubernetes and long-running soak tests
 - Highly available controller and SSO for the controller API
-- Redis Sentinel, Valkey, and managed-Redis verification
+- Redis Sentinel and managed-Redis verification
 - A stable 1.0 API
 
 Ideas and feedback are welcome in [issues](https://github.com/Huy-8bit/keyshift/issues).

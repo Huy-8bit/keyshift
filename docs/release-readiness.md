@@ -17,6 +17,7 @@ Date: 2026-11-21. Verified on one developer machine (Apple M1 Pro, macOS, Docker
 
 | Criterion | Status | Evidence |
 |---|---|---|
+| Batch reads and writes made outside the client | ✅ tested | `MGet` (cache and one pipeline, cross-slot on Cluster), `NotifyWrite` (read-your-writes after INCR through the underlying client); unit and integration tests for both drivers |
 | SDK importable by an external application | ✅ tested | `pkg/keyshift`; examples and GoDoc examples compile in a separate package |
 | SDK works without the controller | ✅ tested | all SDK integration tests run without a controller; `TestControllerOutageDoesNotAffectRedisAccess` |
 | Local hot-key detection with bounded resources | ✅ tested, benchmarked | detector tests (bounds, recall, fuzz); ~0.8 MiB state at defaults (`TestMemoryFootprint`) |
@@ -29,7 +30,7 @@ Date: 2026-11-21. Verified on one developer machine (Apple M1 Pro, macOS, Docker
 | Controller ingests telemetry from many instances | ✅ tested, benchmarked | controller tests; end-to-end test; 5,000-instance simulation |
 | Global and service-level aggregation | ✅ tested | `TestAggregationGlobalVersusLocal`; end-to-end test |
 | Policy distribution | ✅ tested | controller, SDK, and end-to-end tests; verified live in the Docker lab |
-| CLI executes real operations | ✅ verified manually | doctor, inspect, top, stats, instances, policy lifecycle, bench, simulate against real Redis and the lab |
+| CLI executes real operations | ✅ tested | `internal/cli` tests: top, stats, instances, and the policy lifecycle against an in-process controller (including role checks); doctor and inspect key against real Redis; bench and simulate verified manually and in CI smoke runs |
 | Fleet data visible in Prometheus and Grafana | ✅ verified in the lab | `TestFleetMetrics`; lab step 12; screenshots of both Grafana dashboards against live lab telemetry |
 
 ### Reliability
@@ -51,13 +52,13 @@ Date: 2026-11-21. Verified on one developer machine (Apple M1 Pro, macOS, Docker
 | Builds | ✅ | `make build` (3 binaries + examples); Docker images build |
 | Unit tests | ✅ | `make test` |
 | Race tests | ✅ | `make test-race` |
-| Redis integration tests | ✅ | `make test-integration`; matrix on Redis 6.2, 7.4, 8.4, 8.6 and 8.6 Cluster |
-| Lint and static checks | ✅ | gofmt, go vet, golangci-lint (errcheck, govet, staticcheck, gosec, …), tsc; govulncheck: no vulnerabilities |
+| Redis integration tests | ✅ | `make test-integration`; matrix on Redis 6.2, 7.4, 8.4, 8.6 and 8.6 Cluster; `make test-compat` on Valkey 8.1 (also run manually on Valkey 9.0) |
+| Lint and static checks | ✅ | gofmt, go vet, golangci-lint (errcheck, govet, staticcheck, gosec, …); govulncheck: no vulnerabilities |
 | Fuzzing | ✅ | 5 fuzz targets, 20 s each, no failures |
 | Examples compile and run | ✅ | basic, standalone (in the lab), redis-cluster, adaptive-caching |
 | No placeholder production endpoints | ✅ | every API route is implemented and tested |
 | Docker-based development | ✅ | `make test-infra-up`, `make docker-up` verified |
-| CI configured | ⚠️ configured, not executed | `.github/workflows/ci.yml`, `release.yml`; the repository has no remote, so GitHub Actions has not run |
+| CI configured | ✅ running on GitHub Actions | `ci.yml` runs lint, race tests on Go 1.26 and 1.27, fuzz smoke, the integration and fault suites, Valkey compatibility, benchmark and simulation smoke, image builds, and govulncheck; `release.yml` (GoReleaser, images) runs on tags and has not been exercised yet |
 | Documentation matches behavior | ✅ reviewed | docs updated whenever verification changed behavior; numbers come from `benchmarks/results/` |
 
 ### Performance
@@ -76,8 +77,8 @@ Date: 2026-11-21. Verified on one developer machine (Apple M1 Pro, macOS, Docker
 
 - Real deployments with many application pods; distributed scale testing (`deploy/kubernetes/scale-test.yaml` was written but not run).
 - Kubernetes manifests (validated by review only; no cluster was available).
-- GitHub Actions workflows and the GoReleaser configuration (no remote repository).
-- Redis Sentinel, Redis Enterprise, Valkey, managed cloud Redis, TLS to Redis, proxies, and real cluster node failover with replicas.
+- The release workflow and the GoReleaser configuration (no tag has been pushed yet).
+- Redis Sentinel, Redis Enterprise, Valkey Cluster, managed cloud Redis, TLS to Redis, proxies, and real cluster node failover with replicas.
 - Long-running soak tests (hours or days) for memory stability.
 - Performance on Linux servers with real networks.
 
